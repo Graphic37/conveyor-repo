@@ -1,0 +1,3662 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CONVEYOR WORKS — Belt Builder</title>
+<style>
+  html,body{margin:0;padding:0;overflow:hidden;background:#121010;height:100%;}
+  canvas{display:block;}
+  #hud{position:fixed;top:18px;left:20px;color:#d8cdb8;font-family:Georgia,'Times New Roman',serif;pointer-events:none;user-select:none;}
+  #hud .title{font-size:15px;letter-spacing:6px;color:#8f8574;}
+  #styleName{font-size:26px;letter-spacing:2px;margin-top:6px;color:#d8cdb8;text-shadow:0 2px 8px rgba(0,0,0,.7);}
+  #styleName.flash{animation:fl .5s ease;}
+  @keyframes fl{0%{color:#c8863a;}100%{color:#d8cdb8;}}
+  #mode{display:inline-block;font-size:10px;letter-spacing:3px;color:#6a6154;border:1px solid #3a332b;padding:3px 8px;margin-top:8px;}
+  #mode.on{color:#c8863a;border-color:#6e4a20;}
+  #mode.on::before{content:'';display:inline-block;width:6px;height:6px;border-radius:50%;background:#b06a20;margin-right:6px;vertical-align:1px;}
+  #mode::after{content:'BUILD MODE';}
+  #count{position:fixed;top:22px;right:24px;color:#8f8574;font-family:Georgia,serif;font-size:11px;letter-spacing:2.5px;pointer-events:none;user-select:none;}
+  #hint{position:fixed;bottom:16px;left:50%;transform:translateX(-50%);color:#8f8574;font-family:Georgia,serif;font-size:11px;letter-spacing:2px;background:rgba(18,15,13,.78);border:1px solid #322c25;padding:9px 18px;white-space:nowrap;pointer-events:none;user-select:none;}
+  #hint b{color:#c19a5b;font-weight:normal;}
+  #hint .row{white-space:nowrap;}
+  #hint .row+.row{margin-top:4px;padding-top:4px;border-top:1px solid #26211b;}
+  #hint .dim{color:#5c5347;}
+  #hint .dim2{color:#6f665a;font-size:10px;}
+  #pathHud{position:fixed;bottom:92px;left:50%;transform:translateX(-50%);color:#c19a5b;font-family:Georgia,serif;font-size:11px;letter-spacing:2.5px;background:rgba(20,16,12,.85);border:1px solid #3d3428;padding:6px 16px;opacity:0;transition:opacity .15s;pointer-events:none;user-select:none;}
+  #pathHud.on{opacity:1;}
+  #pathHud.bad{color:#c05a44;border-color:#6e2a20;}
+  #mlabels{position:fixed;inset:0;pointer-events:none;z-index:5;}
+  .ml{position:fixed;transform:translate(-50%,-100%);font-family:Georgia,serif;font-size:9px;letter-spacing:1.5px;color:#c19a5b;background:rgba(18,14,11,.82);border:1px solid #33291f;padding:2px 7px;white-space:nowrap;}
+  .ml.bad{color:#c05a44;border-color:#6e2a20;}
+  #auto{display:inline-block;width:7px;height:7px;border-radius:50%;background:#3a332b;margin-left:4px;vertical-align:1px;}
+  #auto.on{background:#b06a20;box-shadow:0 0 5px rgba(176,106,32,.6);}
+  #toast{position:fixed;bottom:64px;left:50%;transform:translateX(-50%);color:#c8863a;font-family:Georgia,serif;font-size:12px;letter-spacing:3px;background:rgba(24,18,13,.9);border:1px solid #6e4a20;padding:8px 20px;opacity:0;transition:opacity .3s;pointer-events:none;user-select:none;}
+  #toast.on{opacity:1;}
+  #vig{position:fixed;inset:0;pointer-events:none;background:radial-gradient(ellipse at center,rgba(0,0,0,0) 55%,rgba(0,0,0,.42) 100%);}
+</style>
+</head>
+<body>
+<div id="vig"></div>
+<div id="hud">
+  <div class="title">CONVEYOR WORKS</div>
+  <div id="styleName">01 · IRON FOUNDRY</div>
+  <div id="mode"></div>
+</div>
+<div id="count"></div>
+<div id="toast"></div>
+<div id="hint">
+  <div class="row"><b>CLICK</b> START → <b>CLICK</b> CHAIN &middot; <b>R</b> ROTATE/BEND &middot; <b>F</b> FLIP BELT &middot; <b>1·2·3</b> TIER <span class="dim">(⇧ = LINE)</span> &middot; <b>CTRL+Z</b> UNDO &middot; <b>R-CLICK/ESC</b> CANCEL·REMOVE</div>
+  <div class="row dim2"><b>6</b> ARM &middot; <b>7</b> SMELTER &middot; <b>8</b> STORAGE <span class="dim">(TAP = TIER)</span> &middot; <b>9</b> SORTER &middot; <b>0</b> ASSEMBLER &middot; <b>Q</b> SPLIT &middot; <b>E</b> MERGE &middot; <b>WASD</b> PAN &middot; <b>G</b> FEED<span id="auto"></span></div>
+</div>
+<div id="pathHud"></div>
+<div id="mlabels"></div>
+<!-- Three.js r128 (MIT) — hosted in your repo to keep this file small. Update the URL to match your repo/branch. -->
+<script src="https://cdn.jsdelivr.net/gh/Graphic37/conveyor-repo@main/conveyor-works-slim/three.r128.min.js"></script>
+<script>
+/* CONVEYOR WORKS v3 — curved belts, transfer arms, ore smelter. Dark-muted ember/bone/stone palette. */
+(function(){
+'use strict';
+
+/* ================= helpers ================= */
+let _s = 1337;
+function rnd(){ _s = (_s*1664525 + 1013904223) >>> 0; return _s / 4294967296; }
+function rr(a,b){ return a + rnd()*(b-a); }
+function clamp(v,a,b){ return v<a?a:(v>b?b:v); }
+function lerp(a,b,t){ return a+(b-a)*t; }
+function ease(t){ return t<0?0:t>1?1:t*t*(3-2*t); }
+function mod(a,n){ return ((a%n)+n)%n; }
+
+function makeTex(w,h,fn,rep){
+  const c=document.createElement('canvas'); c.width=w; c.height=h;
+  fn(c.getContext('2d'),w,h);
+  const t=new THREE.CanvasTexture(c);
+  t.encoding=THREE.sRGBEncoding;
+  if(rep!==false){ t.wrapS=t.wrapT=THREE.RepeatWrapping; }
+  t.anisotropy=4;
+  return t;
+}
+function std(o){ return new THREE.MeshStandardMaterial(o); }
+function box(w,h,d,m){ const g=new THREE.Mesh(new THREE.BoxGeometry(w,h,d),m); g.castShadow=true; g.receiveShadow=true; return g; }
+function cyl(rt,rb,h,seg,m){ const g=new THREE.Mesh(new THREE.CylinderGeometry(rt,rb,h,seg),m); g.castShadow=true; g.receiveShadow=true; return g; }
+function speck(g,w,h,n,cols,a0,a1,s0,s1){
+  for(let i=0;i<n;i++){
+    g.fillStyle=cols[(rnd()*cols.length)|0];
+    g.globalAlpha=rr(a0,a1);
+    const s=rr(s0,s1);
+    g.fillRect(rnd()*w, rnd()*h, s, s);
+  }
+  g.globalAlpha=1;
+}
+
+/* ================= palette / textures ================= */
+const P = {
+  bg:0x121010, iron:0x2c2c30, ironDark:0x232326, steel:0x565a60,
+  ember:0x8a4a1e, emberHi:0xb06a20, bone:0xc9bfa8, boneDim:0xa89e88,
+  stone:0x57503f, stoneDark:0x2e2b28, wood:0x4a3a26, woodDark:0x352a1c,
+  brass:0x8a6a34, brassDark:0x6a5228, cloth:0x7a6a4e
+};
+
+const T = {};
+T.ground = makeTex(1024,1024,(g,w,h)=>{
+  g.fillStyle='#161311'; g.fillRect(0,0,w,h);
+  const n=14, s=w/n;
+  for(let y=0;y<n;y++)for(let x=0;x<n;x++){
+    const v=rr(-8,8)|0;
+    g.fillStyle=`rgb(${24+v},${20+v},${17+v})`;
+    g.fillRect(x*s+1.5, y*s+1.5, s-3, s-3);
+    if(rnd()<0.28){ g.fillStyle='rgba(0,0,0,0.18)'; g.fillRect(x*s+rr(4,s/2), y*s+rr(4,s/2), rr(6,s/2), rr(4,10)); }
+  }
+  speck(g,w,h,2600,['#0d0b09','#2c2620','#231d17'],0.12,0.4,1,3);
+  const rg=g.createRadialGradient(w/2,h/2,w*0.18,w/2,h/2,w*0.62);
+  rg.addColorStop(0,'rgba(0,0,0,0)'); rg.addColorStop(1,'rgba(0,0,0,0.82)');
+  g.fillStyle=rg; g.fillRect(0,0,w,h);
+},false);
+
+/* chevrons point toward +u = direction of travel (+X local); stroke color marks the speed tier */
+function mkChevronTex(stroke){
+  const t = makeTex(128,128,(g,w,h)=>{
+    g.fillStyle='#1b1b1d'; g.fillRect(0,0,w,h);
+    g.strokeStyle=stroke; g.lineWidth=11; g.lineCap='butt';
+    for(let i=-1;i<3;i++){
+      const x=i*64;
+      g.beginPath(); g.moveTo(x, h*0.9); g.lineTo(x+34, h*0.5); g.lineTo(x, h*0.1); g.stroke();
+    }
+    g.strokeStyle='#141416'; g.lineWidth=2;
+    g.beginPath(); g.moveTo(0,4); g.lineTo(w,4); g.moveTo(0,h-4); g.lineTo(w,h-4); g.stroke();
+    speck(g,w,h,220,['#111','#303033'],0.15,0.4,1,2);
+  });
+  t.repeat.set(2,1);
+  return t;
+}
+T.chevron = mkChevronTex('#2b2b2e');
+T.chevron2 = mkChevronTex('#4c7245');
+T.chevron3 = mkChevronTex('#46688c');
+T.chevronT = [T.chevron, T.chevron2, T.chevron3];
+
+T.wood = makeTex(256,256,(g,w,h)=>{
+  g.fillStyle='#4a3a26'; g.fillRect(0,0,w,h);
+  for(let i=0;i<6;i++){
+    const y=i*(h/6);
+    g.fillStyle=i%2?'#453520':'#4e3d29'; g.fillRect(0,y,w,h/6-2);
+    g.fillStyle='#2c2214'; g.fillRect(0,y+h/6-2,w,2);
+    g.strokeStyle='rgba(30,22,12,0.5)'; g.lineWidth=1;
+    for(let k=0;k<5;k++){ const yy=y+rr(4,h/6-6); g.beginPath(); g.moveTo(0,yy); g.bezierCurveTo(w*0.3,yy+rr(-3,3),w*0.7,yy+rr(-3,3),w,yy); g.stroke(); }
+  }
+  speck(g,w,h,300,['#241a0e','#5a4830'],0.1,0.3,1,2);
+});
+
+T.rust = makeTex(256,256,(g,w,h)=>{
+  g.fillStyle='#3a2f26'; g.fillRect(0,0,w,h);
+  for(let i=0;i<50;i++){
+    g.fillStyle=['#5a3a24','#6e4526','#4a3222','#2e241c'][(rnd()*4)|0];
+    g.globalAlpha=rr(0.25,0.6);
+    g.beginPath(); g.ellipse(rnd()*w,rnd()*h,rr(6,34),rr(4,20),rnd()*3,0,7); g.fill();
+  }
+  g.globalAlpha=1;
+  speck(g,w,h,900,['#1e1712','#7a4e2a','#2a201a'],0.2,0.5,1,3);
+});
+T.rust2 = makeTex(256,256,(g,w,h)=>{
+  g.fillStyle='#443528'; g.fillRect(0,0,w,h);
+  for(let i=0;i<40;i++){
+    g.fillStyle=['#5f3f26','#33281e','#6e4a28'][(rnd()*3)|0];
+    g.globalAlpha=rr(0.3,0.6);
+    g.beginPath(); g.ellipse(rnd()*w,rnd()*h,rr(8,40),rr(5,24),rnd()*3,0,7); g.fill();
+  }
+  g.globalAlpha=1;
+  speck(g,w,h,700,['#1e1712','#7a4e2a'],0.2,0.5,1,3);
+});
+
+T.hazard = makeTex(128,64,(g,w,h)=>{
+  g.fillStyle='#26221d'; g.fillRect(0,0,w,h);
+  g.fillStyle='#7c4a20';
+  for(let i=-1;i<5;i++){
+    g.beginPath(); g.moveTo(i*32,h); g.lineTo(i*32+16,0); g.lineTo(i*32+32,0); g.lineTo(i*32+16,h); g.fill();
+  }
+  speck(g,w,h,240,['#141210','#3a3028'],0.25,0.55,1,3);
+});
+
+function runeTex(seed){
+  _s=seed;
+  return makeTex(128,128,(g,w,h)=>{
+    g.fillStyle='#232120'; g.fillRect(0,0,w,h);
+    speck(g,w,h,300,['#1a1817','#2e2b28'],0.3,0.6,1,3);
+    g.strokeStyle='#965c1e'; g.lineWidth=5; g.lineCap='round'; g.globalAlpha=0.9;
+    g.beginPath();
+    let x=w*0.5, y=h*0.2; g.moveTo(x,y);
+    for(let i=0;i<5;i++){ x=clamp(x+rr(-34,34),18,w-18); y=clamp(y+rr(10,22),12,h-12); g.lineTo(x,y); }
+    g.stroke();
+    g.beginPath(); g.moveTo(w*0.3,h*0.5); g.lineTo(w*0.7,h*0.5); g.stroke();
+    g.globalAlpha=1;
+  });
+}
+T.rune1=runeTex(11); T.rune2=runeTex(77);
+
+T.stone = makeTex(256,256,(g,w,h)=>{
+  g.fillStyle='#57503f'; g.fillRect(0,0,w,h);
+  for(let i=0;i<30;i++){
+    g.fillStyle=['#4e4837','#5f5846','#463f31'][(rnd()*3)|0];
+    g.globalAlpha=rr(0.3,0.55);
+    g.beginPath(); g.ellipse(rnd()*w,rnd()*h,rr(10,44),rr(8,26),rnd()*3,0,7); g.fill();
+  }
+  g.globalAlpha=1;
+  speck(g,w,h,700,['#2e2a20','#6a6250'],0.15,0.4,1,2);
+});
+T.basalt = makeTex(256,256,(g,w,h)=>{
+  g.fillStyle='#2a2725'; g.fillRect(0,0,w,h);
+  for(let i=0;i<26;i++){
+    g.fillStyle=['#242220','#312d2a','#1f1d1b'][(rnd()*3)|0];
+    g.globalAlpha=rr(0.35,0.6);
+    g.beginPath(); g.ellipse(rnd()*w,rnd()*h,rr(10,40),rr(8,24),rnd()*3,0,7); g.fill();
+  }
+  g.globalAlpha=1;
+  speck(g,w,h,600,['#151312','#3a3532'],0.15,0.4,1,2);
+});
+T.vents = makeTex(64,64,(g,w,h)=>{
+  g.fillStyle='#232326'; g.fillRect(0,0,w,h);
+  g.fillStyle='#141416';
+  for(let i=0;i<6;i++) g.fillRect(8, 6+i*9, w-16, 4);
+});
+
+/* ================= materials ================= */
+const M = {
+  iron: std({color:P.iron, roughness:0.55, metalness:0.65}),
+  ironDark: std({color:P.ironDark, roughness:0.6, metalness:0.6}),
+  steel: std({color:P.steel, roughness:0.42, metalness:0.85}),
+  emberPaint: std({color:P.ember, roughness:0.7, metalness:0.2}),
+  emberGlow: std({color:P.ember, emissive:P.emberHi, emissiveIntensity:0.22, roughness:0.6, metalness:0.1}),
+  bone: std({color:P.bone, roughness:0.85}),
+  boneDim: std({color:P.boneDim, roughness:0.9}),
+  bone2: std({color:0xbdb29a, roughness:0.85}),
+  stone: std({map:T.stone, roughness:0.95}),
+  stonePlain: std({color:P.stone, roughness:0.95}),
+  stoneDark: std({color:P.stoneDark, roughness:0.95}),
+  basalt: std({map:T.basalt, roughness:0.9, metalness:0.05}),
+  basaltPlain: std({color:0x2a2725, roughness:0.9}),
+  wood: std({map:T.wood, roughness:0.85}),
+  woodDark: std({color:P.woodDark, roughness:0.9}),
+  brass: std({color:P.brass, roughness:0.35, metalness:0.9}),
+  brassDark: std({color:P.brassDark, roughness:0.45, metalness:0.85}),
+  rust: std({map:T.rust, roughness:0.8, metalness:0.35}),
+  rust2: std({map:T.rust2, roughness:0.8, metalness:0.3}),
+  rust3: std({color:0x4e3826, roughness:0.85, metalness:0.3}),
+  rust4: std({color:0x38302a, roughness:0.85, metalness:0.4}),
+  rubber: std({map:T.chevron, roughness:0.9, metalness:0.05}),
+  rubber2: std({map:T.chevron2, roughness:0.9, metalness:0.05}),
+  rubber3: std({map:T.chevron3, roughness:0.9, metalness:0.05}),
+  tierMark2: std({color:0x4c7245, roughness:0.6, metalness:0.2}),
+  tierMark3: std({color:0x46688c, roughness:0.6, metalness:0.2}),
+  hazard: std({map:T.hazard, roughness:0.75, metalness:0.15}),
+  cloth: std({color:P.cloth, roughness:1.0}),
+  brick: std({color:0x5c3f30, roughness:0.95}),
+  dark: std({color:0x161618, roughness:0.95}),
+  amber: std({color:0x9a5c1c, emissive:0xb06a20, emissiveIntensity:0.14, roughness:0.35, metalness:0.1}),
+  gem: std({color:0x9a5c1c, emissive:0xb06a20, emissiveIntensity:0.2, roughness:0.25, metalness:0.1, flatShading:true}),
+  ore: std({color:0x3f3a34, roughness:0.95, flatShading:true}),
+  rune1: std({map:T.rune1, emissive:0x7a4212, emissiveIntensity:0.14, emissiveMap:T.rune1, roughness:0.9}),
+  rune2: std({map:T.rune2, emissive:0x7a4212, emissiveIntensity:0.14, emissiveMap:T.rune2, roughness:0.9}),
+  ghostOK: std({color:0xb06a20, emissive:0x8a4a1e, emissiveIntensity:0.3, transparent:true, opacity:0.42, depthWrite:false, side:THREE.DoubleSide}),
+  ghostBad: std({color:0x6e2a20, emissive:0x5a2018, emissiveIntensity:0.3, transparent:true, opacity:0.42, depthWrite:false, side:THREE.DoubleSide})
+};
+function dsClone(m){ const c=m.clone(); c.side=THREE.DoubleSide; return c; }
+
+/* ================= renderer / scene ================= */
+const renderer = new THREE.WebGLRenderer({antialias:true});
+renderer.setSize(innerWidth, innerHeight);
+renderer.setPixelRatio(Math.min(devicePixelRatio,2));
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.05;
+renderer.outputEncoding = THREE.sRGBEncoding;
+document.body.appendChild(renderer.domElement);
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(P.bg);
+scene.fog = new THREE.FogExp2(P.bg, 0.02);
+
+const camera = new THREE.PerspectiveCamera(46, innerWidth/innerHeight, 0.1, 200);
+
+scene.add(new THREE.HemisphereLight(0x8a7b64, 0x191411, 0.5));
+const key = new THREE.DirectionalLight(0xffe0b4, 1.05);
+key.position.set(9,15,7);
+key.castShadow = true;
+key.shadow.mapSize.set(2048,2048);
+key.shadow.camera.left=-18; key.shadow.camera.right=18;
+key.shadow.camera.top=18; key.shadow.camera.bottom=-18;
+key.shadow.camera.far=50; key.shadow.bias=-0.0015;
+scene.add(key);
+const rim = new THREE.DirectionalLight(0x5a6a7c, 0.28);
+rim.position.set(-8,7,-10); scene.add(rim);
+const fillA = new THREE.PointLight(0xb06428, 0.5, 12, 2); fillA.position.set(-3.2,2.6,2.5); scene.add(fillA);
+const fillB = new THREE.PointLight(0xb06428, 0.4, 11, 2); fillB.position.set(4.8,2.4,5.4); scene.add(fillB);
+
+const ground = new THREE.Mesh(new THREE.PlaneGeometry(64,64), std({map:T.ground, roughness:0.98}));
+ground.rotation.x = -Math.PI/2;
+ground.receiveShadow = true;
+scene.add(ground);
+
+const gridH = new THREE.GridHelper(44, 22, 0x453b2e, 0x241f1a);
+gridH.position.y = 0.02;
+gridH.material.transparent = true; gridH.material.opacity = 0.55;
+scene.add(gridH);
+
+for(let i=0;i<6;i++){
+  const a = i/6*Math.PI*2 + 0.4;
+  const r = rr(18,22);
+  const p = new THREE.Group();
+  const h = rr(3.4,5.2);
+  const foot = box(1.5,0.5,1.5,M.stoneDark); foot.position.y=0.25; p.add(foot);
+  const shaft = cyl(0.5,0.62,h,7,M.stoneDark); shaft.position.y=h/2+0.4; p.add(shaft);
+  const cap = box(1.4,0.4,1.4,M.stoneDark); cap.position.y=h+0.6; p.add(cap);
+  p.position.set(2+Math.sin(a)*r, 0, 4+Math.cos(a)*r);
+  p.rotation.y = rnd()*Math.PI;
+  scene.add(p);
+}
+
+/* ================= arc geometry helpers ================= */
+const TILE = 2.0, L = 2.0, BW = 1.7, HW = BW/2;
+const SPEED = 1.2;
+const DIRS = [[1,0],[0,1],[-1,0],[0,-1]];
+const DIR_RY = [0, -Math.PI/2, Math.PI, Math.PI/2];
+const ARCN = 12, ARCLEN = Math.PI/2;
+
+/* curve chevron texture: rasterized in polar space so every chevron stroke is a
+   perfectly STRAIGHT line in world space, stamped tangentially at stations around
+   the arc — same visual language as the straight belts, just fanned. */
+function mkCurveChev(strokeRGB){
+  return (function(){
+  const W=256, H=128;
+  const c=document.createElement('canvas'); c.width=W; c.height=H;
+  const g=c.getContext('2d');
+  const img=g.createImageData(W,H);
+  const w=(BW-0.3)/2, r0=1-w, r1=1+w;
+  const N=3;
+  const stations=[];
+  for(let k=0;k<N;k++){
+    const tk=(k+0.5)/N*ARCLEN;
+    stations.push([Math.cos(tk), Math.sin(tk)]);
+  }
+  for(let py=0;py<H;py++){
+    const r = r0 + (py+0.5)/H*(r1-r0);
+    for(let px=0;px<W;px++){
+      const th=(px+0.5)/W*ARCLEN;
+      const x=r*Math.cos(th), y=r*Math.sin(th);
+      let cr=27, cg=27, cb=29;
+      if(py<3 || py>H-4){ cr=20; cg=20; cb=22; }
+      else {
+        for(const [ax,ay] of stations){
+          const dx=x-ax, dy=y-ay;
+          const lu=dx*-ay + dy*ax;   // tangential (travel) offset
+          const lv=dx*ax + dy*ay;    // radial offset
+          if(Math.abs(lv) < 0.6 && Math.abs(lu + 0.5*Math.abs(lv)) < 0.048){
+            cr=strokeRGB[0]; cg=strokeRGB[1]; cb=strokeRGB[2]; break;
+          }
+        }
+      }
+      const o=(py*W+px)*4;
+      img.data[o]=cr; img.data[o+1]=cg; img.data[o+2]=cb; img.data[o+3]=255;
+    }
+  }
+  g.putImageData(img,0,0);
+  _s = 424;
+  for(let i=0;i<160;i++){
+    g.fillStyle=['#111113','#303033'][(rnd()*2)|0];
+    g.globalAlpha=rr(0.15,0.4);
+    const s=rr(1,2);
+    g.fillRect(rnd()*W, rnd()*H, s, s);
+  }
+  g.globalAlpha=1;
+  const t=new THREE.CanvasTexture(c);
+  t.encoding=THREE.sRGBEncoding;
+  t.wrapS=t.wrapT=THREE.RepeatWrapping;
+  t.anisotropy=4;
+  return t;
+  })();
+}
+T.curveChev = mkCurveChev([43,43,46]);
+T.curveChev2 = mkCurveChev([76,114,69]);
+T.curveChev3 = mkCurveChev([70,104,140]);
+T.curveChevT = [T.curveChev, T.curveChev2, T.curveChev3];
+M.rubberCurve = std({map:T.curveChev, roughness:0.9, metalness:0.05});
+M.rubberCurve2 = std({map:T.curveChev2, roughness:0.9, metalness:0.05});
+M.rubberCurve3 = std({map:T.curveChev3, roughness:0.9, metalness:0.05});
+M.rubberCurveT = [M.rubberCurve, M.rubberCurve2, M.rubberCurve3];
+
+function quadStrip(n, edgeA, edgeB, uScale){
+  const pos=[], uv=[], idx=[];
+  for(let i=0;i<=n;i++){
+    const t=i/n;
+    const a=edgeA(t), b=edgeB(t);
+    pos.push(a[0],a[1],a[2], b[0],b[1],b[2]);
+    uv.push(t*uScale,0, t*uScale,1);
+  }
+  for(let i=0;i<n;i++){
+    const k=i*2;
+    idx.push(k,k+1,k+2, k+1,k+3,k+2);
+  }
+  const g=new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos,3));
+  g.setAttribute('uv', new THREE.Float32BufferAttribute(uv,2));
+  g.setIndex(idx);
+  g.computeVertexNormals();
+  return g;
+}
+/* curved wall: center C, chirality side, wall centerline radius rc, half-thickness, y span */
+function arcWall(C, side, rc, halfTh, y0, y1, mat, uScale){
+  const g=new THREE.Group();
+  const m=dsClone(mat);
+  const e=(r,y)=>t=>{
+    const f=Math.PI + side*t*ARCLEN;
+    return [C.x+r*Math.cos(f), y, C.z+r*Math.sin(f)];
+  };
+  const parts=[
+    quadStrip(ARCN, e(rc-halfTh,y1), e(rc+halfTh,y1), uScale),  // top
+    quadStrip(ARCN, e(rc-halfTh,y0), e(rc-halfTh,y1), uScale),  // inner face
+    quadStrip(ARCN, e(rc+halfTh,y0), e(rc+halfTh,y1), uScale)   // outer face
+  ];
+  for(const geo of parts){
+    const mesh=new THREE.Mesh(geo,m);
+    mesh.castShadow=true; mesh.receiveShadow=true;
+    g.add(mesh);
+  }
+  for(const t of [0,1]){
+    const f=Math.PI + side*t*ARCLEN;
+    const cap=new THREE.Mesh(new THREE.PlaneGeometry(halfTh*2, y1-y0), m);
+    cap.position.set(C.x+rc*Math.cos(f), (y0+y1)/2, C.z+rc*Math.sin(f));
+    cap.rotation.y = Math.atan2(-side*Math.sin(f), side*Math.cos(f));
+    g.add(cap);
+  }
+  return g;
+}
+function arcFlat(C, side, r0, r1, y, mat, uScale){
+  const e=(r)=>t=>{
+    const f=Math.PI + side*t*ARCLEN;
+    return [C.x+r*Math.cos(f), y, C.z+r*Math.sin(f)];
+  };
+  const mesh=new THREE.Mesh(quadStrip(ARCN, e(r0), e(r1), uScale), dsClone(mat));
+  mesh.castShadow=true; mesh.receiveShadow=true;
+  return mesh;
+}
+
+/* ================= straight belt piece builders ================= */
+function pc_iron(tier){
+  tier = tier||0;
+  const surfMat = [M.rubber, M.rubber2, M.rubber3][tier];
+  const markMat = [null, M.tierMark2, M.tierMark3][tier];
+  const g=new THREE.Group(), anim={slats:[],spins:[],chain:[],spacing:0};
+  const legs=new THREE.Group();
+  for(const s of [-1,1]){
+    const leg=box(0.13,0.86,0.13,M.ironDark);
+    leg.position.set(0,0.44,s*(HW-0.06)); legs.add(leg);
+  }
+  const cross=box(0.08,0.08,BW-0.14,M.ironDark); cross.position.y=0.36; legs.add(cross);
+  g.add(legs);
+  const rails={};
+  for(const s of [-1,1]){
+    const rg=new THREE.Group();
+    const rail=box(L,0.3,0.12,M.iron);
+    rail.position.set(0,0.92,s*(HW+0.06)); rg.add(rail);
+    for(const x of [-0.5,0.5]){
+      const rv=new THREE.Mesh(new THREE.SphereGeometry(0.032,8,6),M.steel);
+      rv.position.set(x,0.92,s*(HW+0.125)); rg.add(rv);
+    }
+    if(markMat){
+      const mk=box(L,0.045,0.028,markMat);
+      mk.position.set(0,1.09,s*(HW+0.06)); rg.add(mk);
+    }
+    g.add(rg); rails[s>0?'P':'N']=rg;
+  }
+  const surf=box(L,0.07,BW-0.3,surfMat); surf.position.y=0.965; g.add(surf);
+  const ret=box(L,0.05,BW-0.36,M.dark); ret.position.y=0.5; ret.castShadow=false; g.add(ret);
+  function cap(sx, motor){
+    const c=new THREE.Group();
+    const dg=new THREE.Group(); dg.rotation.x=Math.PI/2;
+    const drum=cyl(0.23,0.23,BW-0.2,12,M.steel); dg.add(drum);
+    dg.position.set(sx*(L/2-0.02),0.74,0);
+    c.add(dg); anim.spins.push({m:drum, r:0.23, sign:1});
+    const plate=box(0.1,0.34,BW+0.16,M.ironDark);
+    plate.position.set(sx*(L/2+0.03),0.84,0); c.add(plate);
+    for(const s of [-1,1]){
+      const hz=box(0.5,0.18,0.03,M.hazard);
+      hz.position.set(sx*(L/2-0.32),0.94,s*(HW+0.125)); c.add(hz);
+    }
+    if(motor){
+      const mg=new THREE.Group();
+      const mb=box(0.6,0.5,0.42,M.ironDark); mg.add(mb);
+      const vent=new THREE.Mesh(new THREE.PlaneGeometry(0.44,0.34), std({map:T.vents, roughness:0.8, metalness:0.4}));
+      vent.position.z=0.215; mg.add(vent);
+      const lamp=box(0.09,0.05,0.02,M.emberGlow); lamp.position.set(0.18,0.17,0.215); mg.add(lamp);
+      mg.position.set(sx*(L/2-0.34),0.5,HW+0.34);
+      c.add(mg);
+    }
+    return c;
+  }
+  const capF=cap(1,true), capB=cap(-1,false);
+  g.add(capF); g.add(capB);
+  return {group:g, base:legs, railP:rails.P, railN:rails.N, capF, capB, topY:1.0, anim};
+}
+
+function pc_brass(){
+  const g=new THREE.Group(), anim={slats:[],spins:[],chain:[],spacing:0};
+  const legs=new THREE.Group();
+  for(const s of [-1,1]){
+    const leg=box(0.14,0.84,0.17,M.wood);
+    leg.position.set(0,0.42,s*(HW-0.05)); leg.rotation.x=-s*0.12; legs.add(leg);
+  }
+  const brace=box(0.09,0.09,BW+0.1,M.woodDark); brace.position.y=0.4; legs.add(brace);
+  g.add(legs);
+  const rails={};
+  for(const s of [-1,1]){
+    const rg=new THREE.Group();
+    const rail=box(L,0.2,0.15,M.wood); rail.position.set(0,0.88,s*(HW+0.075)); rg.add(rail);
+    const trim=box(L,0.04,0.045,M.brassDark); trim.position.set(0,1.0,s*(HW+0.075)); rg.add(trim);
+    g.add(rg); rails[s>0?'P':'N']=rg;
+  }
+  for(let i=0;i<4;i++){
+    const rgp=new THREE.Group(); rgp.rotation.x=Math.PI/2;
+    const roll=cyl(0.135,0.135,BW-0.26,12,M.brass); rgp.add(roll);
+    for(const e of [-1,1]){
+      const capd=cyl(0.16,0.16,0.045,12,M.brassDark);
+      capd.position.y=e*(BW-0.26)/2; rgp.add(capd);
+    }
+    rgp.position.set(-0.75+i*0.5,0.87,0);
+    g.add(rgp); anim.spins.push({m:roll, r:0.135, sign:1});
+  }
+  function cap(sx, gear){
+    const c=new THREE.Group();
+    const plate=box(0.09,0.28,BW+0.12,M.brassDark);
+    plate.position.set(sx*(L/2+0.02),0.86,0); c.add(plate);
+    for(const s of [-1,1]){
+      const br=box(0.22,0.24,0.05,M.brassDark);
+      br.position.set(sx*(L/2-0.02),0.88,s*(HW+0.11)); c.add(br);
+    }
+    if(gear){
+      const gg=new THREE.Group();
+      const gw=cyl(0.28,0.28,0.07,14,M.brassDark); gw.rotation.x=Math.PI/2; gg.add(gw);
+      for(let i=0;i<8;i++){
+        const t=box(0.09,0.11,0.07,M.brassDark);
+        const a=i/8*Math.PI*2;
+        t.position.set(Math.cos(a)*0.31,Math.sin(a)*0.31,0);
+        t.rotation.z=a; gg.add(t);
+      }
+      gg.position.set(sx*(L/2-0.14),0.87,HW+0.2);
+      c.add(gg); anim.spins.push({m:gg, r:0.31, sign:-1, z:true});
+    }
+    return c;
+  }
+  const capF=cap(1,true), capB=cap(-1,false);
+  g.add(capF); g.add(capB);
+  return {group:g, base:legs, railP:rails.P, railN:rails.N, capF, capB, topY:1.02, anim};
+}
+
+function pc_bone(){
+  const g=new THREE.Group(), anim={slats:[],spins:[],chain:[],spacing:0.4};
+  const plinth=box(0.5,0.72,BW+0.2,M.stonePlain); plinth.position.y=0.38; g.add(plinth);
+  const rails={};
+  for(const s of [-1,1]){
+    const rg=new THREE.Group();
+    const wall=box(L,0.38,0.18,M.stone); wall.position.set(0,0.88,s*(HW+0.09)); rg.add(wall);
+    const lip=box(L,0.06,0.07,M.stoneDark); lip.position.set(0,1.08,s*(HW+0.03)); rg.add(lip);
+    g.add(rg); rails[s>0?'P':'N']=rg;
+  }
+  const bed=box(L,0.05,BW-0.3,M.dark); bed.position.y=0.9; bed.castShadow=false; g.add(bed);
+  const boneMats=[M.bone,M.boneDim,M.bone2];
+  for(let k=0;k<5;k++){
+    const sg=new THREE.Group();
+    const b=box(0.3,0.08,BW-0.4,boneMats[k%3]); sg.add(b);
+    const ridge=box(0.12,0.035,BW-0.4,boneMats[(k+1)%3]); ridge.position.y=0.055; sg.add(ridge);
+    for(const e of [-1,1]){
+      const pin=cyl(0.04,0.04,0.09,8,M.amber);
+      pin.rotation.x=Math.PI/2; pin.position.z=e*(HW-0.14); sg.add(pin);
+    }
+    sg.position.y=0.99;
+    g.add(sg); anim.slats.push({m:sg, off:k*0.4});
+  }
+  function cap(sx){
+    const c=new THREE.Group();
+    const blockc=box(0.3,0.46,BW+0.14,M.stone);
+    blockc.position.set(sx*(L/2+0.04),0.86,0); c.add(blockc);
+    return c;
+  }
+  const capF=cap(1), capB=cap(-1);
+  g.add(capF); g.add(capB);
+  return {group:g, base:plinth, railP:rails.P, railN:rails.N, capF, capB, topY:1.05, anim};
+}
+
+function pc_rune(){
+  const g=new THREE.Group(), anim={slats:[],spins:[],chain:[],spacing:0.5};
+  const plinth=box(0.6,0.72,BW+0.3,M.basalt); plinth.position.y=0.38; g.add(plinth);
+  const rails={};
+  for(const s of [-1,1]){
+    const rg=new THREE.Group();
+    const wall=box(L,0.48,0.22,M.basalt); wall.position.set(0,0.86,s*(HW+0.11)); rg.add(wall);
+    const groove=box(L,0.05,0.03,std({color:0x171514,roughness:1}));
+    groove.position.set(0,0.92,s*(HW+0.225)); rg.add(groove);
+    const inlay=box(L-0.3,0.04,0.02,M.amber);
+    inlay.position.set(0,0.74,s*(HW+0.225)); rg.add(inlay);
+    g.add(rg); rails[s>0?'P':'N']=rg;
+  }
+  const bed=box(L,0.05,BW-0.3,M.dark); bed.position.y=0.92; bed.castShadow=false; g.add(bed);
+  for(let k=0;k<4;k++){
+    const sg=new THREE.Group();
+    const b=box(0.44,0.09,BW-0.44,M.basaltPlain); sg.add(b);
+    if(k===0){
+      const top=new THREE.Mesh(new THREE.PlaneGeometry(0.4,BW-0.5),M.rune1);
+      top.rotation.x=-Math.PI/2; top.rotation.z=Math.PI/2;
+      top.position.y=0.05; sg.add(top);
+    }
+    sg.position.y=1.0;
+    g.add(sg); anim.slats.push({m:sg, off:k*0.5});
+  }
+  function cap(sx){
+    const c=new THREE.Group();
+    const mono=box(0.34,1.3,0.9,M.basalt);
+    mono.position.set(sx*(L/2+0.08),0.66,0);
+    mono.rotation.z=-sx*0.05; c.add(mono);
+    const plate=new THREE.Mesh(new THREE.PlaneGeometry(0.24,0.5),M.rune2);
+    plate.position.set(sx*(L/2+0.08)-sx*0.185,0.95,0);
+    plate.rotation.y=-sx*Math.PI/2; c.add(plate);
+    return c;
+  }
+  const capF=cap(1), capB=cap(-1);
+  g.add(capF); g.add(capB);
+  return {group:g, base:plinth, railP:rails.P, railN:rails.N, capF, capB, topY:1.06, anim};
+}
+
+function pc_rust(h){
+  _s = 5000 + (h*2654435761 >>> 16);
+  const g=new THREE.Group(), anim={slats:[],spins:[],chain:[],spacing:0.4};
+  const legs=new THREE.Group();
+  if(h%3===0){
+    const b1=box(0.4,0.28,0.4,M.brick); b1.position.set(0,0.14,HW-0.1); b1.rotation.y=0.2; legs.add(b1);
+    const b2=box(0.38,0.28,0.38,std({color:0x51382b,roughness:0.95})); b2.position.set(0,0.42,HW-0.1); b2.rotation.y=-0.15; legs.add(b2);
+    const b3=box(0.34,0.24,0.34,M.brick); b3.position.set(0,0.68,HW-0.1); b3.rotation.y=0.4; legs.add(b3);
+    const leg=box(0.13,0.84,0.13,M.rust); leg.position.set(0,0.42,-(HW-0.08)); leg.rotation.z=rr(-0.04,0.04); legs.add(leg);
+  } else {
+    for(const s of [-1,1]){
+      const leg=box(0.13,0.84,0.13,M.rust);
+      leg.position.set(0,0.42,s*(HW-0.08)); leg.rotation.z=rr(-0.04,0.04); legs.add(leg);
+    }
+  }
+  g.add(legs);
+  const rails={};
+  for(const s of [-1,1]){
+    const rg=new THREE.Group();
+    for(let i=0;i<2;i++){
+      const seg=box(L/2+0.08,0.28,0.11,i%2?M.rust:M.rust2);
+      seg.position.set(-L/4+i*(L/2),0.9+rr(-0.02,0.02),s*(HW+0.055));
+      seg.rotation.z=rr(-0.03,0.03); rg.add(seg);
+    }
+    if(rnd()<0.5){
+      const patch=box(0.44,0.3,0.035,M.rust2);
+      patch.position.set(rr(-0.5,0.5),0.9,s*(HW+0.12)); patch.rotation.z=rr(-0.1,0.1); rg.add(patch);
+    }
+    g.add(rg); rails[s>0?'P':'N']=rg;
+  }
+  const bed=box(L,0.05,BW-0.3,M.dark); bed.position.y=0.88; bed.castShadow=false; g.add(bed);
+  for(let k=0;k<6;k++){
+    const link=new THREE.Mesh(new THREE.TorusGeometry(0.06,0.022,6,10),M.ironDark);
+    link.rotation.y=(k%2)*Math.PI/2;
+    link.position.set(0,0.62,HW+0.16);
+    link.castShadow=true;
+    rails.P.add(link);
+    anim.chain.push({m:link, off:k*(L/6)});
+  }
+  const rustShades=[M.rust,M.rust2,M.rust3,M.rust4];
+  const widths=[0.32,0.26,0.34,0.3,0.28];
+  const tiltsX=[0.04,-0.05,0.02,-0.03,0.05];
+  const tiltsY=[-0.03,0.04,-0.02,0.03,-0.04];
+  for(let k=0;k<5;k++){
+    const sg=new THREE.Group();
+    const b=box(widths[k],0.075,BW-0.42-(k%2)*0.1,rustShades[k%4]);
+    b.rotation.x=tiltsX[k]; b.rotation.y=tiltsY[k]; sg.add(b);
+    if(k===2){
+      const p=box(widths[k]*0.5,0.028,0.26,rustShades[(k+2)%4]);
+      p.position.y=0.05; p.rotation.y=0.25; sg.add(p);
+    }
+    sg.position.y=0.97;
+    g.add(sg); anim.slats.push({m:sg, off:k*0.4});
+  }
+  function cap(sx){
+    const c=new THREE.Group();
+    const plate=box(0.1,0.3,BW+0.1,M.rust);
+    plate.position.set(sx*(L/2+0.02),0.84,0); plate.rotation.z=-sx*0.04; c.add(plate);
+    const lip=box(0.16,0.05,BW+0.1,M.rust2);
+    lip.position.set(sx*(L/2-0.02),1.0,0); lip.rotation.z=sx*0.15; c.add(lip);
+    return c;
+  }
+  const capF=cap(1), capB=cap(-1);
+  g.add(capF); g.add(capB);
+  return {group:g, base:legs, railP:rails.P, railN:rails.N, capF, capB, topY:1.02, anim};
+}
+
+const BELT_STYLES = [
+  {name:'IRON BELT MK·I',          build:()=>pc_iron(0), topY:1.0},
+  {name:'IRON BELT MK·II — GREEN', build:()=>pc_iron(1), topY:1.0},
+  {name:'IRON BELT MK·III — BLUE', build:()=>pc_iron(2), topY:1.0}
+];
+const TIER_SPEED = [1.2, 2.0, 3.0];
+
+/* ================= curved corner piece (any style) =================
+   Local frame: travel exits at +X edge (1,0). Input enters from local
+   side*Z at (0,side). Quarter arc, center C=(1,side), angle f = PI + side*s,
+   s in [0, PI/2]. Radius 1 at centerline. */
+function pc_corner(style, side){
+  const tier = style<3 ? style : 0;
+  const g=new THREE.Group(), anim={slats:[],spins:[],chain:[],spacing:0, corner:{side}};
+  const C={x:1, z:side};
+  const topY = BELT_STYLES[tier].topY;
+  const pt=(r,f,y)=>new THREE.Vector3(C.x+r*Math.cos(f), y, C.z+r*Math.sin(f));
+
+  const fm=Math.PI + side*ARCLEN/2;
+  const pm=pt(1,fm,0);
+  const ped=box(0.44,0.72,0.44,M.stoneDark);
+  ped.position.set(pm.x,0.36,pm.z); ped.rotation.y = -fm;
+  g.add(ped);
+
+  const uS = 1.6;
+  const w=(BW-0.3)/2, RADN=5;
+  const pos=[], uv=[], idx=[];
+  for(let i=0;i<=ARCN;i++){
+    const t=i/ARCN, f=Math.PI+side*t*ARCLEN;
+    for(let k=0;k<=RADN;k++){
+      const r=lerp(1-w, 1+w, k/RADN);
+      pos.push(C.x+r*Math.cos(f), 0.965, C.z+r*Math.sin(f));
+      uv.push(t, k/RADN);
+    }
+  }
+  for(let i=0;i<ARCN;i++)for(let k=0;k<RADN;k++){
+    const a0=i*(RADN+1)+k, b0=(i+1)*(RADN+1)+k;
+    idx.push(a0,b0,a0+1, b0,b0+1,a0+1);
+  }
+  const geo=new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(pos,3));
+  geo.setAttribute('uv', new THREE.Float32BufferAttribute(uv,2));
+  geo.setIndex(idx);
+  geo.computeVertexNormals();
+  const surf=new THREE.Mesh(geo, dsClone(M.rubberCurveT[tier]));
+  surf.castShadow=true; surf.receiveShadow=true;
+  g.add(surf);
+  g.add(arcWall(C, side, 1+(HW+0.06), 0.06, 0.77, 1.07, M.iron, uS));
+  g.add(arcWall(C, side, 1-(HW+0.06), 0.06, 0.77, 1.07, M.iron, uS));
+  if(tier>0){
+    const mm = [null, M.tierMark2, M.tierMark3][tier];
+    g.add(arcWall(C, side, 1+(HW+0.06), 0.016, 1.07, 1.11, mm, uS));
+    g.add(arcWall(C, side, 1-(HW+0.06), 0.016, 1.07, 1.11, mm, uS));
+  }
+
+  const capF=new THREE.Group();
+  const plate=box(0.1,0.3,BW+0.1,M.ironDark);
+  plate.position.set(1.03,0.84,0); capF.add(plate);
+  g.add(capF);
+  const capB=new THREE.Group(); capB.visible=false; g.add(capB);
+  const nullRail=new THREE.Group(); g.add(nullRail);
+
+  return {group:g, base:ped, railP:nullRail, railN:nullRail, capF, capB, topY, anim};
+}
+/* ================= feedback: procedural sfx, dust, snap-in ================= */
+let AC = null;
+function sfxInit(){ if(!AC){ try{ AC = new (window.AudioContext||window.webkitAudioContext)(); }catch(e){} } }
+function tone(f0,f1,dur,type,vol,delay){
+  if(!AC) return;
+  const t0 = AC.currentTime + (delay||0);
+  const o = AC.createOscillator(), g = AC.createGain();
+  o.type = type;
+  o.frequency.setValueAtTime(f0, t0);
+  o.frequency.exponentialRampToValueAtTime(Math.max(f1,1), t0+dur);
+  g.gain.setValueAtTime(vol, t0);
+  g.gain.exponentialRampToValueAtTime(0.001, t0+dur);
+  o.connect(g); g.connect(AC.destination);
+  o.start(t0); o.stop(t0+dur+0.02);
+}
+const sfx = {
+  belt:   ()=>{ tone(340,190,0.07,'square',0.045); },
+  machine:()=>{ tone(150,70,0.16,'square',0.08); tone(430,210,0.07,'triangle',0.04,0.02); },
+  err:    ()=>{ tone(120,95,0.16,'sawtooth',0.06); },
+  up:     ()=>{ tone(480,880,0.09,'triangle',0.05); },
+  rem:    ()=>{ tone(210,60,0.11,'sawtooth',0.05); }
+};
+const puffs = [], snaps = [];
+const puffGeo = new THREE.SphereGeometry(0.07,6,5);
+function puffAt(x,z,y){
+  for(let k=0;k<5;k++){
+    const p = new THREE.Mesh(puffGeo, std({color:0x3a332b, transparent:true, opacity:0.55, roughness:1}));
+    p.castShadow = false;
+    p.position.set(x+rr(-0.3,0.3), (y||0.15)+rr(0,0.15), z+rr(-0.3,0.3));
+    p.userData.v = [rr(-0.6,0.6), rr(0.8,1.6), rr(-0.6,0.6)];
+    scene.add(p);
+    puffs.push({m:p, t:0});
+  }
+}
+function snapIn(obj){
+  obj.scale.setScalar(0.88);
+  snaps.push({m:obj, t:0});
+}
+function updateFeedback(dt){
+  for(let i=puffs.length-1;i>=0;i--){
+    const p = puffs[i];
+    p.t += dt*2.4;
+    p.m.position.x += p.m.userData.v[0]*dt;
+    p.m.position.y += p.m.userData.v[1]*dt;
+    p.m.position.z += p.m.userData.v[2]*dt;
+    p.m.scale.setScalar(1 + p.t*1.4);
+    p.m.material.opacity = 0.55*(1-p.t);
+    if(p.t>=1){ scene.remove(p.m); puffs.splice(i,1); }
+  }
+  for(let i=snaps.length-1;i>=0;i--){
+    const s = snaps[i];
+    s.t += dt*7;
+    const k = Math.min(1, s.t);
+    s.m.scale.setScalar(0.88 + 0.12*ease(k) + (k<1 ? Math.sin(k*Math.PI)*0.02 : 0));
+    if(k>=1){ s.m.scale.setScalar(1); snaps.splice(i,1); }
+  }
+}
+
+/* ================= grid state ================= */
+const cells = new Map(); // "i,j" -> {type:'belt'|'arm'|'smelter'|'prop', ...}
+const beltLayer = new THREE.Group(); scene.add(beltLayer);
+function keyOf(i,j){ return i+','+j; }
+function tileCenter(i,j){ return new THREE.Vector3(i*TILE, 0, j*TILE); }
+function tileAt(x,z){ return [Math.round(x/TILE), Math.round(z/TILE)]; }
+function inBounds(i,j){ return Math.abs(i)<=10 && Math.abs(j)<=10; }
+
+/* ================= elevated overpass layer (DSP-style crossings) ================= */
+const cells2 = new Map(); // elevated belts, keyed like cells
+const ELEV_H = 1.0;       // rise above ground belts; clears the tallest riding item
+function smoothstepf(t){ t=clamp(t,0,1); return t*t*(3-2*t); }
+
+function pc_over(){
+  const g=new THREE.Group();
+  const surf=box(L,0.06,BW-0.3,M.rubber); surf.position.y=1.965; g.add(surf);
+  const under=box(L,0.1,BW-0.14,M.ironDark); under.position.y=1.88; g.add(under);
+  for(const s of [-1,1]){
+    const rail=box(L,0.24,0.1,M.iron); rail.position.set(0,1.97,s*(HW+0.05)); g.add(rail);
+    const trim=box(L,0.04,0.03,M.emberPaint); trim.position.set(0,1.86,s*(HW+0.09)); g.add(trim);
+  }
+  const eF=new THREE.Group(), eB=new THREE.Group(), eP=new THREE.Group(), eN=new THREE.Group();
+  g.add(eF); g.add(eB); g.add(eP); g.add(eN);
+  return {group:g, base:g, railP:eP, railN:eN, capF:eF, capB:eB, topY:2.0, anim:{slats:[],spins:[],chain:[]}};
+}
+function pc_ramp(asc){
+  const g=new THREE.Group();
+  const w=(BW-0.3)/2;
+  const yS = t => 0.965 + (asc ? smoothstepf(t) : 1-smoothstepf(t))*ELEV_H;
+  // surface strip with flowing chevrons
+  const surf=new THREE.Mesh(
+    quadStrip(12, t=>[-1+2*t, yS(t), -w], t=>[-1+2*t, yS(t), w], 1.12),
+    dsClone(M.rubber));
+  surf.castShadow=true; surf.receiveShadow=true; g.add(surf);
+  // profile-following rails
+  for(const s of [-1,1]){
+    const zc=s*(HW+0.05), m=dsClone(M.iron);
+    const y0=t=>yS(t)-0.14, y1=t=>yS(t)+0.1;
+    for(const geo of [
+      quadStrip(12, t=>[-1+2*t, y1(t), zc-0.05], t=>[-1+2*t, y1(t), zc+0.05], 1.1),
+      quadStrip(12, t=>[-1+2*t, y0(t), zc-0.05], t=>[-1+2*t, y1(t), zc-0.05], 1.1),
+      quadStrip(12, t=>[-1+2*t, y0(t), zc+0.05], t=>[-1+2*t, y1(t), zc+0.05], 1.1)
+    ]){
+      const mesh=new THREE.Mesh(geo,m);
+      mesh.castShadow=true; mesh.receiveShadow=true; g.add(mesh);
+    }
+  }
+  // legs: short pair at low end, trestle pair at high end
+  const lowX = asc ? -0.78 : 0.78, highX = -lowX;
+  for(const s of [-1,1]){
+    const leg=box(0.13,0.8,0.13,M.ironDark); leg.position.set(lowX,0.4,s*(HW-0.06)); g.add(leg);
+    const tall=box(0.14,1.82,0.14,M.ironDark); tall.position.set(highX,0.91,s*(HW-0.06)); g.add(tall);
+  }
+  const brace=box(0.09,0.09,BW-0.12,M.ironDark); brace.position.set(highX,1.35,0); g.add(brace);
+  const eF=new THREE.Group(), eB=new THREE.Group(), eP=new THREE.Group(), eN=new THREE.Group();
+  g.add(eF); g.add(eB); g.add(eP); g.add(eN);
+  return {group:g, base:g, railP:eP, railN:eN, capF:eF, capB:eB, topY:2.0, anim:{slats:[],spins:[],chain:[]}};
+}
+function placeElevated(i,j,dir){
+  if(cells2.has(keyOf(i,j)) || !inBounds(i,j)) return false;
+  const pc=pc_over();
+  pc.group.position.copy(tileCenter(i,j));
+  pc.group.rotation.y=DIR_RY[dir];
+  pc.group.traverse(o=>{ o.userData.tileKey=keyOf(i,j); });
+  beltLayer.add(pc.group);
+  cells2.set(keyOf(i,j), {type:'belt', elev:true, i, j, dir, style:0, shape:'straight', pc});
+  updateCounter();
+  return true;
+}
+function placeRamp(i,j,dir,kind){
+  if(cells.has(keyOf(i,j)) || !inBounds(i,j)) return false;
+  const pc=pc_ramp(kind==='up');
+  pc.group.position.copy(tileCenter(i,j));
+  pc.group.rotation.y=DIR_RY[dir];
+  pc.group.traverse(o=>{ o.userData.tileKey=keyOf(i,j); });
+  beltLayer.add(pc.group);
+  cells.set(keyOf(i,j), {type:'belt', ramp:kind, i, j, dir, style:0, shape:'straight', pc});
+  refreshConnections(i,j);
+  updateCounter();
+  return true;
+}
+function removeElev(i,j){
+  const rec=cells2.get(keyOf(i,j));
+  if(!rec) return false;
+  beltLayer.remove(rec.pc.group);
+  cells2.delete(keyOf(i,j));
+  updateCounter();
+  return true;
+}
+
+function buildBeltPC(style, dir, shape, h){
+  _s = 4242 + style*97 + h*13;
+  if(shape==='straight') return BELT_STYLES[style].build(h);
+  return pc_corner(style, shape==='cornerP' ? 1 : -1);
+}
+
+function placeBelt(i,j,dir,style){
+  if(cells.has(keyOf(i,j)) || !inBounds(i,j)) return false;
+  const rec = {type:'belt', i, j, dir, style, shape:'straight', pc:null, _fresh:true};
+  cells.set(keyOf(i,j), rec);
+  mountBelt(rec, 'straight');
+  refreshConnections(i,j);
+  updateCounter();
+  return true;
+}
+function mountBelt(rec, shape){
+  if(rec.pc) beltLayer.remove(rec.pc.group);
+  rec.shape = shape;
+  rec.pc = buildBeltPC(rec.style, rec.dir, shape, Math.abs(rec.i*7+rec.j*13));
+  rec.pc.group.position.copy(tileCenter(rec.i,rec.j));
+  rec.pc.group.rotation.y = DIR_RY[rec.dir];
+  rec.pc.group.traverse(o=>{ o.userData.tileKey = keyOf(rec.i,rec.j); });
+  beltLayer.add(rec.pc.group);
+  if(rec._fresh){ snapIn(rec.pc.group); rec._fresh = false; }
+}
+function removeAt(i,j){
+  const rec = cells.get(keyOf(i,j));
+  if(!rec || rec.type==='prop') return false;
+  if(rec.type==='sorter'){ removeSorter(rec.core); return true; }
+  if(rec.type==='assembler'){ removeAssembler(rec.core); return true; }
+  if(rec.type==='storage'){ removeStorage(rec.core); return true; }
+  if(rec.type==='belt') beltLayer.remove(rec.pc.group);
+  else scene.remove(rec.group);
+  cells.delete(keyOf(i,j));
+  refreshConnections(i,j);
+  updateCounter();
+  return true;
+}
+function rotateAt(i,j){
+  const rec = cells.get(keyOf(i,j));
+  if(!rec || rec.type==='prop' || rec.ramp || rec.type==='sorter' || rec.type==='assembler' || rec.type==='storage') return false;
+  rec.dir = (rec.dir+1)%4;
+  if(rec.type==='belt'){
+    rec.pc.group.rotation.y = DIR_RY[rec.dir];
+    refreshConnections(i,j);
+  } else if(rec.type==='arm'){
+    if(rec.markers) rec.markers.rotation.y = DIR_RY[rec.dir]; // rig itself stays; yaw is absolute
+  } else {
+    rec.group.rotation.y = DIR_RY[rec.dir];
+    refreshConnections(i,j);
+  }
+  return true;
+}
+function restyleBelt(i,j,style){
+  const rec = cells.get(keyOf(i,j));
+  if(!rec || rec.type!=='belt' || rec.ramp || rec.style===style) return false;
+  rec.style = style;
+  mountBelt(rec, rec.shape);
+  refreshConnections(i,j);
+  return true;
+}
+
+/* shape + connection pass. A belt fed only from one perpendicular side
+   becomes a curve; caps hide against connected neighbors and smelter mouths. */
+function wouldBeShapeG(i,j,dir,get){
+  const d = DIRS[dir];
+  const back = get(keyOf(i-d[0], j-d[1]));
+  const backFeed = back && back.type==='belt' && back.ramp!=='up' && back.dir===dir;
+  const lat = [-d[1], d[0]]; // local +Z in world
+  const nP = get(keyOf(i+lat[0], j+lat[1]));
+  const nN = get(keyOf(i-lat[0], j-lat[1]));
+  const feedsP = nP && nP.type==='belt' && nP.ramp!=='up' && DIRS[nP.dir][0]===-lat[0] && DIRS[nP.dir][1]===-lat[1];
+  const feedsN = nN && nN.type==='belt' && nN.ramp!=='up' && DIRS[nN.dir][0]===lat[0] && DIRS[nN.dir][1]===lat[1];
+  if(!backFeed && feedsP && !feedsN) return 'cornerP';
+  if(!backFeed && feedsN && !feedsP) return 'cornerN';
+  return 'straight';
+}
+function wouldBeShape(i,j,dir){ return wouldBeShapeG(i,j,dir, k=>cells.get(k)); }
+function shapeOf(rec){ return wouldBeShape(rec.i, rec.j, rec.dir); }
+function refreshConnections(ci,cj){
+  const seen = new Set();
+  const spots = [[ci,cj],[ci+1,cj],[ci-1,cj],[ci,cj+1],[ci,cj-1]];
+  for(const [i,j] of spots){
+    const k = keyOf(i,j);
+    if(seen.has(k)) continue; seen.add(k);
+    const rec = cells.get(k);
+    if(!rec) continue;
+    if(rec.type==='storage'){ updateStorageStubs(rec); continue; }
+    if(rec.type==='assembler'){ if(rec.part===0) updateAssemblerStubs(rec.core); continue; }
+    if(rec.type==='splitter' || rec.type==='merger'){ updateHubStubs(rec); continue; }
+    if(rec.type!=='belt') continue;
+    if(rec.ramp) continue;
+    const want = shapeOf(rec);
+    if(want !== rec.shape) mountBelt(rec, want);
+    const d = DIRS[rec.dir];
+    const fwd  = cells.get(keyOf(i+d[0], j+d[1]));
+    const back = cells.get(keyOf(i-d[0], j-d[1]));
+    const fwdBelt = fwd && fwd.type==='belt';
+    const fwdMouth = fwd && ((fwd.type==='smelter' && fwd.dir===rec.dir) ||
+                             (fwd.type==='storage' && fwd.part===0 && fwd.dir===rec.dir) ||
+                             (fwd.type==='sorter' && sorterAccepts({core:fwd.core, part:fwd.part}, rec.dir)) ||
+                             (fwd.type==='assembler' && assemblerAccepts(fwd, rec.dir)) ||
+                             ((fwd.type==='splitter'||fwd.type==='merger') && hubAccepts(fwd, rec.dir)));
+    rec.pc.capF.visible = !(fwdBelt || fwdMouth);
+    if(rec.shape==='straight'){
+      rec.pc.capB.visible = !(back && ((back.type==='belt' && back.dir===rec.dir) ||
+                              (back.type!=='belt' && back.type!=='prop')));
+      const lat = [-d[1], d[0]];
+      const nP = cells.get(keyOf(i+lat[0], j+lat[1]));
+      const nN = cells.get(keyOf(i-lat[0], j-lat[1]));
+      const feedsP = nP && nP.type==='belt' && nP.ramp!=='up' && DIRS[nP.dir][0]===-lat[0] && DIRS[nP.dir][1]===-lat[1];
+      const feedsN = nN && nN.type==='belt' && nN.ramp!=='up' && DIRS[nN.dir][0]===lat[0] && DIRS[nN.dir][1]===lat[1];
+      rec.pc.railP.visible = !feedsP;
+      rec.pc.railN.visible = !feedsN;
+    }
+  }
+}
+
+function updateHubStubs(rec){
+  for(let k=0;k<4;k++){
+    const w = (k + rec.dir)%4;
+    const n = cells.get(keyOf(rec.i+DIRS[w][0], rec.j+DIRS[w][1]));
+    const feeds = !!(n && n.type==='belt' && n.ramp!=='up' && n.dir===(w+2)%4);
+    const takes = !!(n && n.type==='belt' && n.ramp!=='up' && n.dir===w);
+    rec.stubsIn[k].visible = feeds;
+    rec.stubsOut[k].visible = takes && !feeds;
+  }
+}
+/* animation: one global phase, all pieces in lockstep -> seamless runs */
+let phase = 0;
+const phases = [0,0,0];
+function tierOf(rec){ return (rec.style>=0 && rec.style<3) ? rec.style : 0; }
+function updatePieces(dt){
+  for(let t=0;t<3;t++){
+    phases[t] += TIER_SPEED[t]*dt;
+    T.chevronT[t].offset.x = -mod(phases[t], 1) * (2/L);
+    T.curveChevT[t].offset.x = -mod(phases[t], ARCLEN) / ARCLEN;
+  }
+  phase = phases[0];
+  for(const rec of cells.values()){
+    if(rec.type!=='belt') continue;
+    const t = tierOf(rec), ph = phases[t], spd = TIER_SPEED[t];
+    const a = rec.pc.anim;
+    if(a.corner){
+      const side = a.corner.side, span = ARCLEN;
+      for(const s of a.slats){
+        const sc = mod(s.off + ph, span);
+        const f = Math.PI + side*sc;
+        s.m.position.x = 1 + Math.cos(f);
+        s.m.position.z = side + Math.sin(f);
+        s.m.rotation.y = Math.PI/2 - f;
+      }
+    } else {
+      for(const s of a.slats) s.m.position.x = -L/2 + mod(s.off + ph, L);
+      for(const c of a.chain) c.m.position.x = -L/2 + mod(c.off + ph, L);
+    }
+    for(const sp of a.spins){
+      if(sp.z) sp.m.rotation.z -= spd*dt/sp.r * sp.sign;
+      else     sp.m.rotation.y += spd*dt/sp.r * sp.sign;
+    }
+  }
+}
+
+/* ================= items ================= */
+function mkIngot(){
+  const g = new THREE.Group();
+  const geo = new THREE.BoxGeometry(0.5,0.2,0.26);
+  const pos = geo.attributes.position;
+  for(let i=0;i<pos.count;i++){
+    if(pos.getY(i) > 0){ pos.setX(i, pos.getX(i)*0.78); pos.setZ(i, pos.getZ(i)*0.78); }
+  }
+  geo.computeVertexNormals();
+  const m = new THREE.Mesh(geo, std({color:0x676c74, roughness:0.4, metalness:0.9}));
+  m.castShadow=true; g.add(m);
+  g.userData.half = 0.11; g.userData.kind = 'ingot';
+  return g;
+}
+function mkOre(){
+  const g = new THREE.Group();
+  const rock = new THREE.Mesh(new THREE.DodecahedronGeometry(0.22,0), M.ore);
+  rock.scale.set(1,0.8,0.9); rock.castShadow=true; g.add(rock);
+  for(let i=0;i<3;i++){
+    const fleck = new THREE.Mesh(new THREE.TetrahedronGeometry(0.06,0), M.amber);
+    const a=i/3*Math.PI*2+0.5;
+    fleck.position.set(Math.cos(a)*0.16, rr(-0.04,0.1), Math.sin(a)*0.16);
+    fleck.rotation.set(rnd()*3,rnd()*3,rnd()*3);
+    g.add(fleck);
+  }
+  g.userData.half = 0.18; g.userData.kind = 'ore';
+  return g;
+}
+function mkCrate(){
+  const g = new THREE.Group();
+  g.add(box(0.42,0.42,0.42, M.wood));
+  for(const y of [-0.16, 0.16]){
+    const band = box(0.44,0.06,0.44, M.ironDark);
+    band.position.y = y; g.add(band);
+  }
+  g.userData.half = 0.22; g.userData.kind = 'crate';
+  return g;
+}
+function mkGem(){
+  const g = new THREE.Group();
+  const m = new THREE.Mesh(new THREE.IcosahedronGeometry(0.22,0), M.gem);
+  m.castShadow=true; g.add(m);
+  g.userData.half = 0.2; g.userData.kind = 'gem';
+  return g;
+}
+function mkBlock(){
+  const g = new THREE.Group();
+  const b = box(0.42,0.3,0.34, std({map:T.stone, roughness:0.95}));
+  b.rotation.y = rr(-0.2,0.2);
+  g.add(b);
+  g.userData.half = 0.16; g.userData.kind = 'block';
+  return g;
+}
+function mkSack(){
+  const g = new THREE.Group();
+  const body = new THREE.Mesh(new THREE.SphereGeometry(0.24,10,8), M.cloth);
+  body.scale.set(1,0.82,1); body.castShadow=true; g.add(body);
+  const knot = cyl(0.06,0.09,0.12,8,std({color:0x60523c, roughness:1}));
+  knot.position.y = 0.2; g.add(knot);
+  g.userData.half = 0.2; g.userData.kind = 'sack';
+  return g;
+}
+function mkProduct(){
+  const g = new THREE.Group();
+  const casing = box(0.4,0.22,0.3, M.ironDark); g.add(casing);
+  const core = cyl(0.09,0.09,0.34,8,M.amber); core.rotation.z=Math.PI/2; core.position.y=0.02; g.add(core);
+  const band = box(0.42,0.06,0.32, M.steel); band.position.y=-0.06; g.add(band);
+  const fins = box(0.3,0.05,0.34, M.iron); fins.position.y=0.12; g.add(fins);
+  g.userData.half = 0.13; g.userData.kind = 'product';
+  return g;
+}
+const ITEM_KINDS = [
+  {k:'ore', mk:mkOre, name:'ORE'},
+  {k:'ingot', mk:mkIngot, name:'INGOT'},
+  {k:'gem', mk:mkGem, name:'GEM'},
+  {k:'crate', mk:mkCrate, name:'CRATE'},
+  {k:'block', mk:mkBlock, name:'BLOCK'},
+  {k:'sack', mk:mkSack, name:'SACK'},
+  {k:'product', mk:mkProduct, name:'PRODUCT'}
+];
+
+/* ================= riders ================= */
+const riders = [];
+function ridersOn(i,j){
+  let n=0;
+  for(const r of riders){
+    if(r.falling || r.layer!==0) continue;
+    const [ti,tj]=tileAt(r.mesh.position.x, r.mesh.position.z);
+    if(ti===i&&tj===j) n++;
+  }
+  return n;
+}
+function addRider(mesh, x, y, z){
+  mesh.traverse(o=>{ if(o.material){ o.material=o.material.clone(); o.material.transparent=true; } });
+  mesh.position.set(x,y,z);
+  scene.add(mesh);
+  const r={mesh, half:mesh.userData.half||0.2, falling:false, claimed:false, vy:0, rest:0, ax:1, az:0, layer:0};
+  riders.push(r);
+  updateCounter();
+  return r;
+}
+function spawnRiderAt(mesh, i, j){
+  const c = tileCenter(i,j);
+  const rec = cells.get(keyOf(i,j));
+  const topY = (rec && rec.type==='belt') ? rec.pc.topY : 1;
+  return addRider(mesh, c.x+rr(-0.08,0.08), topY+(mesh.userData.half||0.2), c.z+rr(-0.08,0.08));
+}
+function dropRider(r){ r.falling = true; r.vy = 0.6; }
+
+function stalledAhead(r, m){
+  for(const o of riders){
+    if(o===r || o.falling) continue;
+    if(Math.abs(o.mesh.position.y - m.position.y) > 0.5) continue; // other layer
+    const dx = o.mesh.position.x - m.position.x;
+    const dz = o.mesh.position.z - m.position.z;
+    const ahead = dx*r.ax + dz*r.az;
+    const side2 = Math.abs(dx*-r.az + dz*r.ax);
+    if(ahead > 0.04 && ahead < 0.55 && side2 < 0.45) return true;
+  }
+  return false;
+}
+function updateRiders(dt){
+  for(let n=riders.length-1;n>=0;n--){
+    const r = riders[n], m = r.mesh;
+    if(r.claimed) continue;
+    if(!r.falling){
+      const [ti,tj] = tileAt(m.position.x, m.position.z);
+      let cell;
+      if(r.layer===1){
+        cell = cells2.get(keyOf(ti,tj));
+        if(!cell){
+          const gr = cells.get(keyOf(ti,tj));
+          if(gr && gr.type==='belt' && gr.ramp) cell = gr; // descend the ramp
+        }
+      } else {
+        cell = cells.get(keyOf(ti,tj));
+      }
+      if(cell && cell.type==='belt'){
+        const rec = cell;
+        const beltSpd = TIER_SPEED[tierOf(rec)];
+        r.spd = beltSpd;
+        const adv = stalledAhead(r, m) ? 0 : beltSpd*dt;
+        const c = tileCenter(ti,tj);
+        if(rec.shape==='straight'){
+          const d = DIRS[rec.dir];
+          r.ax = d[0]; r.az = d[1];
+          const rx = m.position.x - c.x, rz = m.position.z - c.z;
+          let along = rx*d[0] + rz*d[1];
+          let lx = rx - d[0]*along, lz = rz - d[1]*along;
+          along += adv;
+          // queue up at the edge when a transfer arm waits ahead, or storage is full
+          if(along > 0.72){
+            const fwd = cells.get(keyOf(ti+d[0], tj+d[1]));
+            if(fwd && ((fwd.type==='arm' && DIRS[fwd.dir][0]===d[0] && DIRS[fwd.dir][1]===d[1]) ||
+                       (fwd.type==='storage' && !storageAccepts(fwd, rec.dir)) ||
+                       (fwd.type==='smelter' && fwd.dir===rec.dir && fwd.queue >= SMELT_Q) ||
+                       (fwd.type==='sorter' && !sorterAccepts(fwd, rec.dir)) ||
+                       (fwd.type==='assembler' && !assemblerAccepts(fwd, rec.dir)) ||
+                       ((fwd.type==='splitter'||fwd.type==='merger') && !hubAccepts(fwd, rec.dir)))) along = Math.min(along, 0.72);
+          }
+          const damp = Math.max(0, 1 - 5*dt);
+          lx *= damp; lz *= damp;
+          m.position.x = c.x + d[0]*along + lx;
+          m.position.z = c.z + d[1]*along + lz;
+          if(rec.ramp){
+            const t = clamp((along+1)/2, 0, 1);
+            const h = rec.ramp==='up' ? smoothstepf(t) : 1-smoothstepf(t);
+            m.position.y = 1.0 + h*ELEV_H + r.half;
+            r.layer = rec.ramp==='up' ? 1 : 0;
+          } else {
+            m.position.y = rec.pc.topY + r.half;
+          }
+        } else {
+          const side = rec.shape==='cornerP' ? 1 : -1;
+          const ry = DIR_RY[rec.dir];
+          const cos = Math.cos(ry), sin = Math.sin(ry);
+          const wx = m.position.x - c.x, wz = m.position.z - c.z;
+          let lx = wx*cos - wz*sin, lz = wx*sin + wz*cos;
+          const dxr = lx - 1, dzr = lz - side;
+          let rad = Math.sqrt(dxr*dxr + dzr*dzr);
+          let f = Math.atan2(dzr, dxr);
+          // tangent heading (world) for stall/fall momentum
+          const txl = -side*Math.sin(f), tzl = side*Math.cos(f);
+          r.ax = txl*cos + tzl*sin;
+          r.az = -txl*sin + tzl*cos;
+          f += side * adv / Math.max(rad, 0.45);
+          rad += (1 - rad) * Math.min(1, 5*dt);
+          lx = 1 + rad*Math.cos(f);
+          lz = side + rad*Math.sin(f);
+          m.position.x = c.x + lx*cos + lz*sin;
+          m.position.z = c.z - lx*sin + lz*cos;
+          m.position.y = rec.pc.topY + r.half;
+        }
+      } else if(cell && cell.type==='smelter' &&
+                (r.ax*DIRS[cell.dir][0] + r.az*DIRS[cell.dir][1]) > 0.5){
+        const d = DIRS[cell.dir], c = tileCenter(cell.i, cell.j);
+        const along = (m.position.x-c.x)*d[0] + (m.position.z-c.z)*d[1];
+        if(along < -0.14){
+          // ride the intake belt deep into the tunnel; hold at the mouth while the furnace is full
+          r.ax = d[0]; r.az = d[1]; r.spd = SPEED;
+          if(!stalledAhead(r, m)){
+            const step = Math.min(SPEED*dt, Math.max(0, (cell.queue >= SMELT_Q ? -0.52 : -0.12) - along));
+            m.position.x += d[0]*step;
+            m.position.z += d[1]*step;
+          }
+          m.position.y = 1.0 + r.half;
+          const na = (m.position.x-c.x)*d[0] + (m.position.z-c.z)*d[1];
+          if(na >= -0.14 && cell.queue < SMELT_Q) consumeIntoSmelter(cell, r, n);
+        } else if(along > 0.26){
+          // fresh ingot riding out the far port
+          m.position.x += d[0]*SPEED*dt;
+          m.position.z += d[1]*SPEED*dt;
+          m.position.y = 1.0 + r.half;
+        } else {
+          consumeIntoSmelter(cell, r, n);
+        }
+      } else if(cell && cell.type==='storage'){
+        const core = cell.core, d = DIRS[core.dir];
+        const aligned = r.ax*d[0] + r.az*d[1] > 0.5;
+        if(!aligned){ dropRider(r); }
+        else {
+          const c = tileCenter(cell.i, cell.j);
+          const along = (m.position.x-c.x)*d[0] + (m.position.z-c.z)*d[1];
+          if(cell.part===1 && along > 0.26){
+            // withdrawn item riding out the exit tunnel
+            m.position.x += d[0]*SPEED*dt;
+            m.position.z += d[1]*SPEED*dt;
+            m.position.y = 1.0 + r.half;
+          } else if(cell.part===0){
+            if(along < -0.3){
+              // ride in through the intake; hold at the mouth when full
+              if(!stalledAhead(r, m)){
+                const stop = core.count < core.cap ? -0.28 : -0.58;
+                const step = Math.min(SPEED*dt, Math.max(0, stop - along));
+                m.position.x += d[0]*step;
+                m.position.z += d[1]*step;
+              }
+              m.position.y = 1.0 + r.half;
+            } else if(core.count < core.cap){
+              depositRider(core, r, n);
+            } else {
+              m.position.y = 1.0 + r.half; // full: wait at the mouth
+            }
+          } else {
+            dropRider(r);
+          }
+        }
+      } else if(cell && cell.type==='sorter'){
+        const c = tileCenter(cell.i, cell.j);
+        const along = (m.position.x-c.x)*r.ax + (m.position.z-c.z)*r.az;
+        if(along > 0.3){
+          // ejected item riding out through an aperture
+          m.position.x += r.ax*SPEED*dt;
+          m.position.z += r.az*SPEED*dt;
+          m.position.y = 1.0 + r.half;
+        } else {
+          const di = DIRS.findIndex(dd=>Math.abs(dd[0]-r.ax)<0.5 && Math.abs(dd[1]-r.az)<0.5);
+          if(di>=0 && sorterAccepts(cell, di)){
+            if(along < -0.35){
+              if(!stalledAhead(r, m)){
+                m.position.x += r.ax*SPEED*dt;
+                m.position.z += r.az*SPEED*dt;
+              }
+              m.position.y = 1.0 + r.half;
+            } else sorterIntake(cell, r, n);
+          } else dropRider(r);
+        }
+      } else {
+        dropRider(r);
+      }
+    } else {
+      r.vy -= 12*dt;
+      m.position.y += r.vy*dt;
+      const fs = (r.spd||SPEED)*0.75;
+      m.position.x += r.ax*fs*dt;
+      m.position.z += r.az*fs*dt;
+      m.rotation.x += 2.2*dt;
+      if(m.position.y <= r.half+0.02){
+        m.position.y = r.half+0.02;
+        m.rotation.x = 0;
+        if(r.vy < -1.8){ r.vy = -r.vy*0.28; } else { r.vy = 0; r.rest += dt; r.ax*=0.6; r.az*=0.6; }
+      }
+      if(r.rest > 1.0){
+        let done = true;
+        m.traverse(o=>{ if(o.material){ o.material.opacity -= dt*1.6; if(o.material.opacity>0) done=false; } });
+        if(done){ scene.remove(m); riders.splice(n,1); updateCounter(); }
+      }
+    }
+  }
+}
+
+const MACH_ACCENT = [null, null, null]; // filled after M is available at runtime use
+const TIER_PAINT = ()=>[M.emberPaint, M.tierMark2, M.tierMark3];
+const TIER_NAME = ['MK·I','MK·II','MK·III'];
+
+/* port materials + hover glow */
+const M_portIn  = std({color:0x4c7245, emissive:0x3a6b34, emissiveIntensity:0.45, roughness:0.55});
+const M_portOut = std({color:0x8a4a1e, emissive:0x9a5a1e, emissiveIntensity:0.45, roughness:0.55});
+function dirIndexOf(vx,vz){ return DIRS.findIndex(d=>d[0]===vx && d[1]===vz); }
+
+/* real port aperture: jambs + lintel opening into a pitch-black tunnel cavity.
+   Cavity extends toward local -X; orient the frame so -X points INTO the machine. */
+const M_void = new THREE.MeshBasicMaterial({color:0x060504});
+function portFrame(openW, openBot, openTop, wallTop, faceW, th, mat, depth){
+  depth = depth===undefined ? 0.75 : depth;
+  const g = new THREE.Group();
+  const jambW = (faceW - openW) / 2;
+  for(const s of [-1,1]){
+    const jamb = box(th, wallTop, jambW, mat);
+    jamb.position.set(0, wallTop/2, s*(openW/2 + jambW/2));
+    g.add(jamb);
+  }
+  const lintel = box(th, wallTop-openTop, openW, mat);
+  lintel.position.set(0, (wallTop+openTop)/2, 0);
+  g.add(lintel);
+  if(openBot > 0.02){
+    const sill = box(th, openBot, openW, mat);
+    sill.position.set(0, openBot/2, 0);
+    g.add(sill);
+  }
+  // faded shadow veils: items visibly dim as they pass, still readable through them
+  if(depth < 0.01) return g;
+  const oh = openTop - openBot;
+  for(let v=0; v<3; v++){
+    const veil = new THREE.Mesh(new THREE.PlaneGeometry(openW-0.02, oh-0.02),
+      new THREE.MeshBasicMaterial({color:0x030202, fog:false, transparent:true,
+        opacity:0.3 + v*0.25, depthWrite:false, side:THREE.DoubleSide}));
+    veil.rotation.y = Math.PI/2;
+    veil.position.set(-0.08 - v*(depth/3), (openTop+openBot)/2, 0);
+    veil.castShadow = false;
+    g.add(veil);
+  }
+  return g;
+}
+function fadeVeilsZ(w, h, yMid, zFace, sIn, n){
+  // veils facing ±Z, receding inward (for hand-built apertures)
+  const g = new THREE.Group();
+  for(let v=0; v<(n||3); v++){
+    const veil = new THREE.Mesh(new THREE.PlaneGeometry(w, h),
+      new THREE.MeshBasicMaterial({color:0x030202, fog:false, transparent:true,
+        opacity:0.3 + v*0.25, depthWrite:false, side:THREE.DoubleSide}));
+    veil.position.set(0, yMid, zFace + sIn*(0.06 + v*0.16));
+    veil.castShadow = false;
+    g.add(veil);
+  }
+  return g;
+}
+
+/* port markers: green = input, ember = output; arrows point along item flow */
+const PORT_SHAPE = (()=>{ const s=new THREE.Shape();
+  s.moveTo(-0.18,-0.14); s.lineTo(0.18,0); s.lineTo(-0.18,0.14); s.lineTo(-0.08,0); s.lineTo(-0.18,-0.14); return s; })();
+function portArrow(inbound, yaw){
+  const g = new THREE.Group();
+  const m = new THREE.Mesh(new THREE.ShapeGeometry(PORT_SHAPE),
+    std({color:inbound?0x4c7245:0xb06a20, emissive:inbound?0x35592f:0x8a4a1e, emissiveIntensity:0.5,
+         transparent:true, opacity:0.92, depthWrite:false, side:THREE.DoubleSide}));
+  m.rotation.x = -Math.PI/2;
+  g.add(m);
+  g.rotation.y = yaw||0;
+  return g;
+}
+
+/* integrated belt stub: chevron surface phase-aligned with adjacent belt pieces */
+function beltStub(x0, x1){
+  const g = new THREE.Group();
+  const w = (BW-0.3)/2;
+  const geo = quadStrip(1, t=>[x0+t*(x1-x0),0.965,-w], t=>[x0+t*(x1-x0),0.965,w], (x1-x0)/2);
+  const uv = geo.attributes.uv;
+  const base = (x0+1)/2;
+  for(let i=0;i<uv.count;i++) uv.setX(i, uv.getX(i)+base);
+  const surf = new THREE.Mesh(geo, dsClone(M.rubber));
+  surf.castShadow=true; surf.receiveShadow=true;
+  g.add(surf);
+  for(const s of [-1,1]){
+    const rail = box(x1-x0, 0.16, 0.08, M.iron);
+    rail.position.set((x0+x1)/2, 0.95, s*(HW+0.04));
+    g.add(rail);
+  }
+  return g;
+}
+
+/* ================= storage container (closed, gauged) ================= */
+const STORE_CAP = 24;
+const STORE_CAPS = [24, 48, 96];
+function buildStorage(){
+  const g = new THREE.Group(); // local origin = part0 tile center; +X flow; extends to x=3
+  const fillBars = [];
+  const base = box(3.95,0.14,1.95,M.stoneDark); base.position.set(1,0.07,0); g.add(base);
+  // corner + mid posts
+  for(const z of [-0.86,0.86]){
+    for(const x of [-0.86, 1, 2.86]){
+      const post = box(0.18,1.66,0.18,M.iron); post.position.set(x,0.97,z); g.add(post);
+    }
+  }
+  // long ribbed side panels with big fill gauges
+  for(const s of [-1,1]){
+    const panel = box(3.5,1.3,0.09,M.ironDark); panel.position.set(1,0.95,s*0.84); g.add(panel);
+    for(const rx of [-0.4,0.35,1.65,2.4]){
+      const rib = box(0.07,1.26,0.11,M.iron); rib.position.set(rx,0.95,s*0.85); g.add(rib);
+    }
+    const slot = box(0.9,0.16,0.05,M.dark); slot.position.set(1,1.38,s*0.9); g.add(slot);
+    const bar = new THREE.Mesh(new THREE.BoxGeometry(1,0.1,0.03), M.amber.clone());
+    bar.position.set(0.58, 1.38, s*0.92);
+    bar.scale.x = 0.001; bar.visible = false;
+    g.add(bar); fillBars.push(bar);
+    const hz = box(0.5,0.1,0.02,M.hazard); hz.position.set(2.2,0.3,s*0.9); g.add(hz);
+  }
+  // interior dim backdrop
+  const backdrop = box(3.3,1.1,1.1,M.dark); backdrop.position.set(1,0.9,0); backdrop.castShadow=false; g.add(backdrop);
+  // intake tunnel (back) + exit tunnel (front)
+  const pin = portFrame(1.5, 0.42, 1.55, 1.76, 1.9, 0.1, M.ironDark, 0.5);
+  pin.position.x = -0.86; pin.rotation.y = Math.PI;
+  g.add(pin);
+  const pout = portFrame(1.5, 0.42, 1.55, 1.76, 1.9, 0.1, M.ironDark, 0.5);
+  pout.position.x = 2.86;
+  g.add(pout);
+  // roof + hatches
+  const lid = box(3.98,0.12,1.98,M.iron); lid.position.set(1,1.83,0); g.add(lid);
+  for(const hx of [0.15,1.85]){
+    const hatch = box(0.62,0.08,0.62,M.ironDark); hatch.position.set(hx,1.93,0); g.add(hatch);
+    const handle = box(0.26,0.05,0.08,M.steel); handle.position.set(hx,1.99,0.14); g.add(handle);
+  }
+  const chip = box(0.14,0.14,0.03,M.amber); chip.position.set(2.7,1.9,0.7); g.add(chip);
+  // arrows: one in, one out
+  const ain = portArrow(true, 0);  ain.position.set(-0.98, 1.02, 0);  g.add(ain);
+  const aout = portArrow(false, 0); aout.position.set(2.98, 1.02, 0); g.add(aout);
+  // stubs: intake at the back, exit at the front (shown when connected)
+  const stubIn = beltStub(-1,-0.3); stubIn.visible = false; g.add(stubIn);
+  const stubOut = beltStub(0.3,1.0); stubOut.position.x = 2; stubOut.visible = false; g.add(stubOut);
+  return {group:g, fillBars, stubIn, stubOut};
+}
+function setFill(core){
+  const frac = clamp(core.count / core.cap, 0, 1);
+  for(const b of core.fillBars){
+    b.visible = core.count > 0;
+    b.scale.x = Math.max(frac, 0.001);
+    b.position.x = 0.58 + frac*0.84/2;
+  }
+}
+function placeStorage(i,j,dir){
+  const d = DIRS[dir];
+  const tiles = [[i,j],[i+d[0],j+d[1]]];
+  for(const [ti,tj] of tiles){
+    if(!inBounds(ti,tj) || cells.has(keyOf(ti,tj)) || cells2.has(keyOf(ti,tj))) return false;
+  }
+  _s = 620+i*13+j*29;
+  const b = buildStorage();
+  b.group.position.copy(tileCenter(i,j));
+  b.group.rotation.y = DIR_RY[dir];
+  const core = {origin:[i,j], dir, cap:48, count:0, stored:[], group:b.group,
+    fillBars:b.fillBars, stubIn:b.stubIn, stubOut:b.stubOut, t:0};
+  b.group.traverse(o=>{ o.userData.tileKey = keyOf(i,j); });
+  scene.add(b.group); snapIn(b.group);
+  tiles.forEach(([ti,tj],k)=>{
+    cells.set(keyOf(ti,tj), {type:'storage', i:ti, j:tj, part:k, core, dir});
+  });
+  refreshConnections(i,j);
+  refreshConnections(tiles[1][0], tiles[1][1]);
+  updateCounter();
+  return true;
+}
+function removeStorage(core){
+  scene.remove(core.group);
+  const d = DIRS[core.dir], [i,j] = core.origin;
+  for(let k=0;k<2;k++) cells.delete(keyOf(i+k*d[0], j+k*d[1]));
+  refreshConnections(i,j);
+  refreshConnections(i+d[0], j+d[1]);
+  updateCounter();
+}
+function storageAccepts(cell, dirIdx){
+  return cell.part===0 && dirIdx===cell.core.dir && cell.core.count < cell.core.cap;
+}
+function depositMesh(core, mesh){
+  if(mesh.parent) mesh.parent.remove(mesh);
+  core.stored.push(mesh);
+  core.count++;
+  setFill(core);
+}
+function depositRider(core, r, idx){
+  scene.remove(r.mesh);
+  riders.splice(idx,1);
+  depositMesh(core, r.mesh);
+  updateCounter();
+}
+function withdrawMesh(core){
+  const mesh = core.stored.pop();
+  core.count--;
+  setFill(core);
+  return mesh;
+}
+/* storage belt-through: eject stored items out the front onto an outward belt */
+function updateStorages(dt){
+  for(const cell of cells.values()){
+    if(cell.type!=='storage' || cell.part!==0) continue;
+    const core = cell.core;
+    core.t -= dt;
+    if(core.count <= 0 || core.t > 0) continue;
+    const d = DIRS[core.dir];
+    const oi = core.origin[0]+2*d[0], oj = core.origin[1]+2*d[1];
+    const n = cells.get(keyOf(oi,oj));
+    if(n && n.type==='belt' && !n.ramp && n.dir===core.dir && ridersOn(oi,oj) < 2){
+      const mesh = withdrawMesh(core);
+      const c1 = tileCenter(core.origin[0]+d[0], core.origin[1]+d[1]);
+      const r2 = addRider(mesh, c1.x + d[0]*0.3, 1.0 + (mesh.userData.half||0.2), c1.z + d[1]*0.3);
+      r2.ax = d[0]; r2.az = d[1];
+      core.t = 0.35;
+      updateCounter();
+    }
+  }
+}
+function updateStorageStubs(cell){
+  const core = cell.core, d = DIRS[core.dir];
+  const [i,j] = core.origin;
+  const back = cells.get(keyOf(i-d[0], j-d[1]));
+  core.stubIn.visible = !!(back && back.type==='belt' && back.ramp!=='up' && back.dir===core.dir);
+  const front = cells.get(keyOf(i+2*d[0], j+2*d[1]));
+  core.stubOut.visible = !!(front && front.type==='belt' && front.ramp!=='up' && front.dir===core.dir);
+}
+
+/* ================= splitter & merger hubs ================= */
+const HUB_Q = 3;
+function buildHub(isSplitter){
+  const g = new THREE.Group();
+  const pad = box(1.95,0.14,1.95,M.stoneDark); pad.position.y=0.07; g.add(pad);
+  for(const [sx,sz] of [[-1,-1],[1,-1],[-1,1],[1,1]]){
+    const post = box(0.18,1.6,0.18,M.iron); post.position.set(sx*0.84,0.94,sz*0.84); g.add(post);
+  }
+  // four full tunnel faces, trims colored by role (green in / ember out)
+  const backdrop = box(1.1,1.1,1.1,M.dark); backdrop.position.y=0.92;
+  backdrop.castShadow=false; g.add(backdrop);
+  const roles = isSplitter ? ['out','out','in','out'] : ['out','in','in','in']; // local +X, +Z, -X, -Z
+  for(let k=0;k<4;k++){
+    const face = new THREE.Group();
+    face.rotation.y = DIR_RY[k];
+    const pf = portFrame(1.4, 0.42, 1.5, 1.7, 1.86, 0.1, M.ironDark, 0.45);
+    pf.position.x = 0.85;
+    face.add(pf);
+    const tm = roles[k]==='in' ? M_portIn : M_portOut;
+    const trim = box(0.07,0.07,1.44,tm); trim.position.set(0.88,1.55,0); face.add(trim);
+    const sillT = box(0.07,0.06,1.44,tm); sillT.position.set(0.88,0.44,0); face.add(sillT);
+    g.add(face);
+  }
+  // turbine cap like the reference
+  const lid = box(1.9,0.1,1.9,M.iron); lid.position.y=1.76; g.add(lid);
+  const cap = cyl(0.55,0.85,0.3,8,M.ironDark); cap.position.y=1.94; g.add(cap);
+  const disc = cyl(0.46,0.46,0.1,16,M.dark); disc.position.y=2.12; g.add(disc);
+  const hubcap = cyl(0.16,0.16,0.06,10,M.iron); hubcap.position.y=2.18; g.add(hubcap);
+  const lamp = box(0.12,0.07,0.12,M.emberGlow.clone()); lamp.position.set(0.6,1.84,0.6); g.add(lamp);
+  const hz = box(0.5,0.1,0.02,M.hazard); hz.position.set(0,0.28,0.95); g.add(hz);
+  // arrows above the tunnels
+  const mk = (inb, yaw, x, z)=>{ const a=portArrow(inb,yaw); a.position.set(x*1.04,1.02,z*1.04); a.scale.setScalar(1.0); g.add(a); };
+  if(isSplitter){
+    mk(true, 0, -0.95, 0);
+    mk(false, 0, 0.95, 0);
+    mk(false, -Math.PI/2, 0, 0.95);
+    mk(false, Math.PI/2, 0, -0.95);
+  } else {
+    mk(true, 0, -0.95, 0);
+    mk(true, -Math.PI/2, 0, -0.95);
+    mk(true, Math.PI/2, 0, 0.95);
+    mk(false, 0, 0.95, 0);
+  }
+  // per-face stubs: inward + outward variants, shown per connection
+  const stubsIn = [], stubsOut = [];
+  for(let k=0;k<4;k++){
+    const si = beltStub(-1,-0.26);
+    si.rotation.y = DIR_RY[(k+2)%4];
+    si.visible = false;
+    g.add(si); stubsIn.push(si);
+    const so = beltStub(0.26,1.0);
+    so.rotation.y = DIR_RY[k];
+    so.visible = false;
+    g.add(so); stubsOut.push(so);
+  }
+  return {group:g, lamp, stubsIn, stubsOut};
+}
+function placeHub(i,j,dir,kind){
+  if(cells.has(keyOf(i,j)) || !inBounds(i,j)) return false;
+  _s = 480+i*5+j*9;
+  const b = buildHub(kind==='splitter');
+  b.group.position.copy(tileCenter(i,j));
+  b.group.rotation.y = DIR_RY[dir];
+  b.group.traverse(o=>{ o.userData.tileKey = keyOf(i,j); });
+  scene.add(b.group); snapIn(b.group);
+  cells.set(keyOf(i,j), {type:kind, i, j, dir, group:b.group, lamp:b.lamp,
+    stubsIn:b.stubsIn, stubsOut:b.stubsOut, queue:[], t:0, rr:0, blockT:0});
+  refreshConnections(i,j);
+  updateCounter();
+  return true;
+}
+function hubAccepts(cell, dirIdx){
+  if(cell.queue.length >= HUB_Q) return false;
+  if(cell.type==='splitter') return dirIdx===cell.dir; // back only
+  // merger: back or either side inward
+  if(dirIdx===cell.dir) return true;
+  const lat = [-DIRS[cell.dir][1], DIRS[cell.dir][0]];
+  const mv = DIRS[dirIdx];
+  return Math.abs(mv[0]*lat[0]+mv[1]*lat[1]) > 0.5;
+}
+function updateHubs(dt){
+  for(const cell of cells.values()){
+    if(cell.type!=='splitter' && cell.type!=='merger') continue;
+    cell.t -= dt;
+    let blocked = false;
+    if(cell.queue.length && cell.t <= 0){
+      const d = DIRS[cell.dir], lat = [-d[1], d[0]];
+      const outs = cell.type==='splitter'
+        ? [[d,cell.dir],[lat,(cell.dir+1)%4],[[-lat[0],-lat[1]],(cell.dir+3)%4]]
+        : [[d,cell.dir]];
+      let sent = false;
+      for(let k=0;k<outs.length;k++){
+        const pick = (cell.rr + k) % outs.length;
+        const [ov, od] = outs[pick];
+        const oi = cell.i+ov[0], oj = cell.j+ov[1];
+        const c2 = cells.get(keyOf(oi,oj));
+        if(c2 && c2.type==='belt' && !c2.ramp && c2.dir===od && ridersOn(oi,oj) < 2){
+          const item = cell.queue.shift();
+          const cc = tileCenter(cell.i, cell.j);
+          const r2 = addRider(item.mesh, cc.x + ov[0]*0.3, 1.0 + item.half, cc.z + ov[1]*0.3);
+          r2.ax = ov[0]; r2.az = ov[1];
+          cell.rr = (pick+1) % outs.length;
+          cell.t = 0.22;
+          sent = true;
+          break;
+        }
+      }
+      if(!sent) blocked = true;
+    }
+    const full = cell.queue.length >= HUB_Q;
+    cell.lamp.material.emissive.setHex((blocked||full) ? 0x8a2018 : 0xb06a20);
+    cell._blk = blocked;
+    cell.lamp.material.emissiveIntensity = (blocked||full) ? 0.7 : (cell.queue.length ? 0.5 : 0.22);
+    if(blocked){ cell.blockT -= dt; if(cell.blockT<=0){ toast((cell.type==='splitter'?'SPLITTER':'MERGER')+' OUTPUT BLOCKED'); cell.blockT = 6; } }
+    else cell.blockT = 0;
+  }
+}
+
+/* ================= assembler (2 tiles: two ingredients in the side ports -> product out the front) ================= */
+const ASM_BUF = 3, ASM_TIME = 2.2;
+function buildAssembler(){
+  const g = new THREE.Group(); // local origin = part0 center; +X flow; part1 at x=2
+  const base = box(3.9,0.16,1.9,M.stoneDark); base.position.set(1,0.08,0); g.add(base);
+  // part0: twin intake tunnels into one shared black chamber
+  const inBackdrop = box(1.4,1.1,1.0,M.dark); inBackdrop.position.set(0,0.92,0);
+  inBackdrop.castShadow=false; g.add(inBackdrop);
+  for(const s of [-1,1]){
+    const pf = portFrame(1.35, 0.42, 1.55, 1.72, 1.7, 0.12, M.ironDark, 0.45);
+    pf.position.set(0, 0, s*0.84);
+    pf.rotation.y = s>0 ? -Math.PI/2 : Math.PI/2;
+    g.add(pf);
+    const hz = box(0.4,0.1,0.02,M.hazard); hz.position.set(0.75,0.28,s*0.92); g.add(hz);
+  }
+  const hopper = box(0.95,1.15,1.15,M.basalt); hopper.position.set(0,0.78,0); g.add(hopper);
+  // connecting hall between the intake block and the assembly cage
+  for(const s of [-1,1]){
+    const link = box(1.05,1.34,0.16,M.basalt); link.position.set(0.95,0.87,s*0.76); g.add(link);
+  }
+  const linkTop = box(1.05,0.14,1.68,M.ironDark); linkTop.position.set(0.95,1.6,0); g.add(linkTop);
+  const linkFloor = box(1.05,0.08,1.4,M.dark); linkFloor.position.set(0.95,0.24,0); g.add(linkFloor);
+  const grille = new THREE.Mesh(new THREE.PlaneGeometry(0.7,0.85), std({map:T.vents, roughness:0.8, metalness:0.4}));
+  grille.rotation.x = -Math.PI/2; grille.position.set(0,1.36,0); g.add(grille);
+  const acc0 = box(0.05,0.5,0.7,M.emberPaint); acc0.position.set(-0.5,0.85,0); g.add(acc0);
+  // part1: assembly cage with ring + press piston
+  for(const [sx,sz] of [[-1,-1],[1,-1],[-1,1],[1,1]]){
+    const pil = box(0.16,1.7,0.16,M.iron); pil.position.set(2+sx*0.72,1.0,sz*0.72); g.add(pil);
+  }
+  for(const sz of [-1,1]){
+    const beam = box(1.6,0.14,0.16,M.ironDark); beam.position.set(2,1.86,sz*0.72); g.add(beam);
+  }
+  const xbeam = box(0.2,0.14,1.6,M.ironDark); xbeam.position.set(2,1.9,0); g.add(xbeam);
+  const ring = new THREE.Mesh(new THREE.TorusGeometry(0.52,0.06,6,8), M.ironDark);
+  ring.rotation.y = Math.PI/2; ring.position.set(2,1.02,0); ring.castShadow=true; g.add(ring);
+  const piston = box(0.24,0.55,0.24,M.steel); piston.position.set(2,1.6,0); g.add(piston);
+  const pad = box(0.52,0.09,0.52,M.ironDark); pad.position.set(2,0.55,0); g.add(pad);
+  const glowMat = std({color:0x2a1a10, emissive:0xb05a1c, emissiveIntensity:0.3, roughness:0.8});
+  const bed = box(0.5,0.05,0.5,glowMat); bed.position.set(2,0.6,0); g.add(bed);
+  // roof deck + greebles
+  const deck = box(1.5,0.08,1.5,M.iron); deck.position.set(2,2.0,0); g.add(deck);
+  const acc1 = box(0.5,0.06,0.4,M.emberPaint); acc1.position.set(2.3,2.06,0.3); g.add(acc1);
+  for(let k=0;k<4;k++){
+    const lv = box(0.05,0.05,0.6,M.dark); lv.position.set(1.55+k*0.12,2.05,-0.3); g.add(lv);
+  }
+  for(const lx of [-0.12,0.12]){
+    const rail = box(0.04,1.1,0.04,M.steel); rail.position.set(2.85+lx*0,0,0); // ladder below
+  }
+  for(let k=0;k<4;k++){
+    const rung = box(0.05,0.035,0.3,M.steel); rung.position.set(2.86,0.5+k*0.3,0.5); g.add(rung);
+  }
+  const lamp = box(0.12,0.08,0.12,M.emberGlow.clone()); lamp.position.set(2,2.12,0); g.add(lamp);
+  // output port + integrated belts
+  const ofr2 = portFrame(1.5, 0.42, 1.6, 2.0, 1.9, 0.12, M.ironDark);
+  ofr2.position.x = 2.58;
+  g.add(ofr2);
+  const outStub = beltStub(0.55,1.0); outStub.position.x = 2; g.add(outStub);
+  const pa1 = portArrow(true, Math.PI/2);  pa1.position.set(0, 1.0, 0.88);  g.add(pa1);   // input A: enters moving -Z
+  const pa2 = portArrow(true, -Math.PI/2); pa2.position.set(0, 1.0, -0.88); g.add(pa2);   // input B: enters moving +Z
+  const pao = portArrow(false, 0); pao.position.set(2.82, 1.005, 0); g.add(pao);          // product out
+  const stubs = [];
+  for(const s of [1,-1]){ // input A (+lat local +Z), input B (-lat)
+    const st = beltStub(-1,-0.4);
+    st.rotation.y = DIR_RY[s>0 ? 3 : 1]; // stub edge faces local ±Z
+    st.visible = false;
+    g.add(st); stubs.push(st);
+  }
+  return {group:g, glowMat, lamp, piston, stubs};
+}
+function placeAssembler(i,j,dir){
+  const d = DIRS[dir];
+  const tiles = [[i,j],[i+d[0],j+d[1]]];
+  for(const [ti,tj] of tiles){
+    if(!inBounds(ti,tj) || cells.has(keyOf(ti,tj)) || cells2.has(keyOf(ti,tj))) return false;
+  }
+  _s = 950+i*7+j*17;
+  const b = buildAssembler();
+  b.group.position.copy(tileCenter(i,j));
+  b.group.rotation.y = DIR_RY[dir];
+  const core = {origin:[i,j], dir, group:b.group, glowMat:b.glowMat, lamp:b.lamp, piston:b.piston,
+    stubs:b.stubs, inA:0, inB:0, t:0, buffer:0, heat:0};
+  b.group.traverse(o=>{ o.userData.tileKey = keyOf(i,j); });
+  scene.add(b.group);
+  tiles.forEach(([ti,tj],k)=>{
+    cells.set(keyOf(ti,tj), {type:'assembler', i:ti, j:tj, part:k, core, dir});
+  });
+  refreshConnections(i,j);
+  refreshConnections(tiles[1][0], tiles[1][1]);
+  updateCounter();
+  return true;
+}
+function removeAssembler(core){
+  scene.remove(core.group);
+  const d = DIRS[core.dir], [i,j] = core.origin;
+  for(let k=0;k<2;k++) cells.delete(keyOf(i+k*d[0], j+k*d[1]));
+  refreshConnections(i,j);
+  refreshConnections(i+d[0], j+d[1]);
+  updateCounter();
+}
+/* side value: +1 = input A (world side +lat of part0), -1 = input B */
+function assemblerAccepts(cell, dirIdx){
+  if(cell.part!==0) return false;
+  const core = cell.core, d = DIRS[core.dir], lat = [-d[1], d[0]];
+  const mv = DIRS[dirIdx];
+  const dotLat = mv[0]*lat[0] + mv[1]*lat[1];
+  if(Math.abs(dotLat) < 0.5) return false;
+  return dotLat < 0 ? core.inA < ASM_BUF : core.inB < ASM_BUF;
+}
+function updateAssemblerStubs(core){
+  const d = DIRS[core.dir], lat = [-d[1], d[0]];
+  const [i,j] = core.origin;
+  [[1,0],[-1,1]].forEach(([s,idx])=>{
+    const n = cells.get(keyOf(i+s*lat[0], j+s*lat[1]));
+    core.stubs[idx].visible = !!(n && n.type==='belt' && n.ramp!=='up' &&
+      DIRS[n.dir][0]===-s*lat[0] && DIRS[n.dir][1]===-s*lat[1]);
+  });
+}
+function updateAssemblers(dt){
+  for(const cell of cells.values()){
+    if(cell.type!=='assembler' || cell.part!==0) continue;
+    const core = cell.core;
+    if(core.t <= 0 && core.inA > 0 && core.inB > 0 && core.buffer < ASM_BUF){
+      core.inA--; core.inB--; core.t = ASM_TIME;
+    }
+    if(core.t > 0){
+      core.t -= dt;
+      if(core.t <= 0) core.buffer++;
+    }
+    let aBlocked = false;
+    if(core.buffer > 0){
+      const d = DIRS[core.dir];
+      const oi = core.origin[0]+2*d[0], oj = core.origin[1]+2*d[1];
+      const out = cells.get(keyOf(oi,oj));
+      aBlocked = !(out && out.type==='belt' && !out.ramp && ridersOn(oi,oj) < 2);
+      if(!aBlocked){
+        core.buffer--;
+        _s = 55+core.origin[0];
+        const pr = mkProduct();
+        const c1 = tileCenter(core.origin[0]+d[0], core.origin[1]+d[1]);
+        const r2 = addRider(pr, c1.x + d[0]*0.3, 1.0 + pr.userData.half, c1.z + d[1]*0.3);
+        r2.ax = d[0]; r2.az = d[1];
+      }
+    }
+    core.glowMat.emissive.setHex(aBlocked ? 0x8a2018 : 0xb05a1c);
+    core.lamp.material.emissive.setHex(aBlocked ? 0x8a2018 : 0xb06a20);
+    if(aBlocked){ core.blockT = (core.blockT||0) - dt; if(core.blockT<=0){ toast('ASSEMBLER OUTPUT BLOCKED'); core.blockT = 6; } }
+    else core.blockT = 0;
+    const active = core.t > 0;
+    core.heat = lerp(core.heat, active ? 1 : 0.08, Math.min(1, 3*dt));
+    const flick = 1 + Math.sin(phase*10 + core.origin[0])*0.15;
+    core.glowMat.emissiveIntensity = 0.12 + core.heat*0.8*flick;
+    core.lamp.material.emissiveIntensity = 0.2 + core.heat*0.5*flick;
+    core.piston.position.y = 1.6 - (active ? (0.5+0.5*Math.sin(phase*9))*0.42*core.heat : 0);
+  }
+}
+
+/* ================= sorter (3-tile splitter: dump in the ends, filtered outputs on the sides) ================= */
+const SORTER_Q = 10;
+function buildSorter(){
+  const g = new THREE.Group(); // local origin = part0 tile center; extends +X to x=4
+  const displayMounts = [];
+  const base = box(5.9,0.16,1.95,M.stoneDark); base.position.set(2,0.08,0); g.add(base);
+  // frame posts along both long sides + roof
+  for(const z of [-0.86,0.86]){
+    for(const x of [-0.92, 1, 3, 4.92]){
+      const post = box(0.2,1.68,0.2,M.iron); post.position.set(x,0.96,z); g.add(post);
+    }
+  }
+  const roof = box(6.0,0.12,1.98,M.iron); roof.position.set(2,1.82,0); g.add(roof);
+  const inner = box(5.5,1.26,1.3,M.dark); inner.position.set(2,0.85,0); inner.castShadow=false; g.add(inner);
+  for(const s of [-1,1]) for(let k=0;k<3;k++){
+    const fv = fadeVeilsZ(1.3, 1.1, 0.95, s*0.8, -s, 3);
+    fv.position.x = k*2;
+    g.add(fv);
+  }
+  // long walls: one aperture per tile per side
+  for(const s of [-1,1]){
+    for(let k=0;k<3;k++){
+      const lintel = box(1.34,0.36,0.1,M.ironDark); lintel.position.set(k*2,1.58,s*0.86); g.add(lintel);
+      const sill = box(1.34,0.4,0.1,M.ironDark); sill.position.set(k*2,0.22,s*0.86); g.add(sill);
+    }
+    for(const jx of [1,3]){
+      const jamb = box(0.62,1.34,0.1,M.ironDark); jamb.position.set(jx,0.95,s*0.86); g.add(jamb);
+    }
+  }
+  // end tunnel mouths
+  for(const [ex,rot] of [[-0.9,Math.PI],[4.9,0]]){
+    const pf = portFrame(1.5, 0.42, 1.6, 1.78, 1.9, 0.12, M.ironDark);
+    pf.position.x = ex;
+    pf.rotation.y = rot;
+    g.add(pf);
+    const hzr = box(0.03,0.14,1.5,M.hazard); hzr.position.set(ex + (ex<0?0.09:-0.09),0.34,0); g.add(hzr);
+  }
+  // console + lamp
+  const console_ = box(0.8,0.34,0.7,M.ironDark); console_.position.set(2,1.98,0); g.add(console_);
+  const inlay = box(0.6,0.05,0.5,M.amber); inlay.position.set(2,2.16,0); g.add(inlay);
+  const lamp = box(0.12,0.08,0.12,M.emberGlow.clone()); lamp.position.set(2,2.22,0); g.add(lamp);
+  // 6 filter displays above the side apertures
+  for(let side=0; side<2; side++){
+    const s = side===0 ? 1 : -1;
+    for(let k=0;k<3;k++){
+      const px = k*2;
+      const shelf = box(0.44,0.05,0.3,M.iron); shelf.position.set(px,1.86,s*0.74); g.add(shelf);
+      const mount = new THREE.Group();
+      mount.position.set(px,2.02,s*0.74);
+      g.add(mount);
+      const hit = box(0.7,0.7,0.5,M.dark);
+      hit.material = hit.material.clone(); hit.material.transparent=true; hit.material.opacity=0.0; hit.material.depthWrite=false;
+      hit.castShadow=false;
+      hit.position.set(px,1.5,s*0.86);
+      g.add(hit);
+      const slotIndex = side===0 ? k : 3+k;
+      hit.userData.sorterSlot = slotIndex;
+      mount.userData.sorterSlot = slotIndex;
+      displayMounts.push(mount);
+    }
+  }
+  const se1 = portArrow(true, 0);  se1.position.set(-1.0, 1.7, 0);  g.add(se1);
+  const se2 = portArrow(true, Math.PI); se2.position.set(5.0, 1.7, 0); g.add(se2);
+  for(let side=0; side<2; side++){
+    const s = side===0 ? 1 : -1;
+    for(let k=0;k<3;k++){
+      const po = portArrow(false, s>0 ? -Math.PI/2 : Math.PI/2);
+      po.position.set(k*2, 1.68, s*0.98);
+      po.scale.setScalar(0.75);
+      g.add(po);
+    }
+  }
+  return {group:g, displayMounts, lamp};
+}
+function sorterSetSlot(core, slot, kindIdx){
+  core.slots[slot] = kindIdx;
+  const mount = core.displayMounts[slot];
+  while(mount.children.length) mount.remove(mount.children[0]);
+  if(kindIdx < 0){
+    const blank = box(0.3,0.3,0.05,M.dark); blank.rotation.x = -0.25; mount.add(blank);
+  } else {
+    _s = 100+slot*7;
+    const it = ITEM_KINDS[kindIdx].mk();
+    it.scale.setScalar(0.72);
+    it.position.y = 0.08;
+    mount.add(it);
+  }
+}
+function placeSorter(i,j,dir){
+  const d = DIRS[dir];
+  const tiles = [[i,j],[i+d[0],j+d[1]],[i+2*d[0],j+2*d[1]]];
+  for(const [ti,tj] of tiles){
+    if(!inBounds(ti,tj) || cells.has(keyOf(ti,tj)) || cells2.has(keyOf(ti,tj))) return false;
+  }
+  _s = 810+i*11+j*3;
+  const b = buildSorter();
+  b.group.position.copy(tileCenter(i,j));
+  b.group.rotation.y = DIR_RY[dir];
+  const core = {origin:[i,j], dir, group:b.group, displayMounts:b.displayMounts, lamp:b.lamp,
+    slots:[0,1,2,3,4,5], queue:[], t:0};
+  for(let s=0;s<6;s++) sorterSetSlot(core, s, s); // all 6 kinds pre-assigned
+  b.group.traverse(o=>{ o.userData.tileKey = keyOf(i,j); if(o.userData.sorterSlot!==undefined) o.userData.sorterCore = core; });
+  scene.add(b.group); snapIn(b.group);
+  tiles.forEach(([ti,tj],k)=>{
+    cells.set(keyOf(ti,tj), {type:'sorter', i:ti, j:tj, part:k, core, dir});
+  });
+  refreshConnections(i,j);
+  refreshConnections(tiles[2][0], tiles[2][1]);
+  updateCounter();
+  return true;
+}
+function removeSorter(core){
+  scene.remove(core.group);
+  const d = DIRS[core.dir], [i,j] = core.origin;
+  for(let k=0;k<3;k++) cells.delete(keyOf(i+k*d[0], j+k*d[1]));
+  refreshConnections(i,j);
+  refreshConnections(i+2*d[0], j+2*d[1]);
+  updateCounter();
+}
+function sorterAccepts(cell, dirIdx){
+  const cd = cell.core.dir;
+  if(cell.core.queue.length >= SORTER_Q) return false;
+  if(cell.part===0 && dirIdx===cd) return true;          // in through the back end
+  if(cell.part===2 && dirIdx===(cd+2)%4) return true;    // in through the front end
+  return false;
+}
+function sorterIntake(cell, r, idx){
+  scene.remove(r.mesh);
+  riders.splice(idx,1);
+  cell.core.queue.push({kind:r.mesh.userData.kind || 'ore', mesh:r.mesh, half:r.half});
+  updateCounter();
+}
+function sorterEject(core, item, pi, pj, vx, vz){
+  const c = tileCenter(pi,pj);
+  const r2 = addRider(item.mesh, c.x + vx*0.32, 1.0 + item.half, c.z + vz*0.32);
+  r2.ax = vx; r2.az = vz;
+}
+function updateSorters(dt){
+  for(const cell of cells.values()){
+    if(cell.type!=='sorter' || cell.part!==0) continue;
+    const core = cell.core;
+    core.t -= dt;
+    // spin the filter displays; lamp heat
+    for(const m of core.displayMounts) if(m.children[0] && core.slots[core.displayMounts.indexOf(m)]>=0) m.children[0].rotation.y += dt*0.9;
+    core.lamp.material.emissiveIntensity = 0.22 + (core.queue.length>0 ? 0.35+Math.sin(phase*8)*0.1 : 0);
+    if(core.t > 0 || !core.queue.length) continue;
+    const d = DIRS[core.dir], lat = [-d[1], d[0]];
+    const [oi,oj] = core.origin;
+    for(let q=0;q<core.queue.length;q++){
+      const item = core.queue[q];
+      const kIdx = ITEM_KINDS.findIndex(K=>K.k===item.kind);
+      const slot = core.slots.indexOf(kIdx);
+      let out = null;
+      if(slot >= 0){
+        const part = slot%3, s = slot<3 ? 1 : -1;
+        const ti = oi + part*d[0] + s*lat[0], tj = oj + part*d[1] + s*lat[1];
+        const c = cells.get(keyOf(ti,tj));
+        if(c && c.type==='belt' && !c.ramp && ridersOn(ti,tj)<2)
+          out = [oi + part*d[0], oj + part*d[1], s*lat[0], s*lat[1]]; // spawn on the part, ride out the aperture
+      } else {
+        // unassigned kind: overflow out an end onto an outward-flowing belt
+        for(const [pi2,pj2,ei,ej,wx,wz] of [
+          [oi+2*d[0], oj+2*d[1], oi+3*d[0], oj+3*d[1], d[0], d[1]],
+          [oi, oj, oi-d[0], oj-d[1], -d[0], -d[1]]
+        ]){
+          const c = cells.get(keyOf(ei,ej));
+          if(c && c.type==='belt' && !c.ramp &&
+             DIRS[c.dir][0]===wx && DIRS[c.dir][1]===wz && ridersOn(ei,ej)<2){ out=[pi2,pj2,wx,wz]; break; }
+        }
+      }
+      if(out){
+        core.queue.splice(q,1);
+        sorterEject(core, item, out[0], out[1], out[2], out[3]);
+        core.t = 0.3;
+        break;
+      }
+    }
+  }
+}
+
+/* ================= smelter ================= */
+function buildSmelter(tier){
+  tier = tier||0;
+  const acc = TIER_PAINT()[tier];
+  const g = new THREE.Group(); // local +X = flow direction; input mouth at -X, output port at +X
+  const glowMat = std({color:0x2a1a10, emissive:0xb05a1c, emissiveIntensity:0.6, roughness:0.8});
+  // base + integrated belts
+  const base = box(1.98,0.18,1.95,M.stoneDark); base.position.y=0.09; g.add(base);
+  g.add(beltStub(-1,-0.12));      // input: runs from the tile edge deep into the tunnel
+  g.add(beltStub(0.55,1.0));      // output: ingots ride out of the port
+  // input portal: tall tunnel mouth that swallows the largest item
+  for(const s of [-1,1]){
+    const pyl = box(0.52,1.92,0.36,M.basalt); pyl.position.set(-0.64,1.12,s*0.8); g.add(pyl);
+    const hz = box(0.42,0.13,0.02,M.hazard); hz.position.set(-0.64,0.32,s*(0.8+0.19)); g.add(hz);
+  }
+  const canopy = box(0.68,0.24,2.0,M.iron); canopy.position.set(-0.62,2.2,0); g.add(canopy);
+  const roofLink = box(0.55,0.2,1.55,M.basalt); roofLink.position.set(-0.16,2.16,0); g.add(roofLink);
+  const mfr = portFrame(1.55, 0.42, 1.7, 2.08, 1.95, 0.12, M.ironDark, 0.8);
+  mfr.position.x = -0.42;
+  mfr.rotation.y = Math.PI;
+  g.add(mfr);
+  // furnace glow deep at the cavity back
+  const mouth = new THREE.Mesh(new THREE.PlaneGeometry(1.4,0.9), glowMat);
+  mouth.position.set(0.3,1.0,0); mouth.rotation.y=-Math.PI/2; g.add(mouth);
+  // main body + upper block (big)
+  const body = box(1.28,1.9,1.88,M.basalt); body.position.set(0.22,1.18,0); g.add(body);
+  const bodyBand = box(1.32,0.12,1.92,M.ironDark); bodyBand.position.set(0.22,1.92,0); g.add(bodyBand);
+  const upper = box(1.05,0.78,1.5,M.ironDark); upper.position.set(0.22,2.52,0); g.add(upper);
+  const crown = box(0.72,0.14,1.05,M.iron); crown.position.set(0.22,3.0,0); g.add(crown);
+  const crucible = cyl(0.24,0.29,0.1,8,glowMat); crucible.position.set(0.22,3.1,0); g.add(crucible);
+  // ember accent panels
+  const acc2 = box(0.46,0.36,0.05,acc); acc2.position.set(-0.05,2.42,0.78); g.add(acc2);
+  // louver vent stack
+  for(let k=0;k<6;k++){
+    const lv = box(0.56,0.05,0.07,M.dark); lv.position.set(0.36,0.85+k*0.13,0.96); g.add(lv);
+  }
+  // pipes + chimney
+  const pipe1 = cyl(0.09,0.09,1.3,8,M.steel); pipe1.position.set(0.62,2.3,-0.66); g.add(pipe1);
+  const pipe2 = cyl(0.065,0.065,1.05,8,M.ironDark); pipe2.position.set(0.36,2.2,-0.74); g.add(pipe2);
+  const pcapA = cyl(0.11,0.11,0.09,8,M.ironDark); pcapA.position.set(0.62,2.98,-0.66); g.add(pcapA);
+  const chim = cyl(0.17,0.22,0.85,8,M.ironDark); chim.position.set(0.44,3.5,0.42); g.add(chim);
+  const rimc = cyl(0.23,0.23,0.1,8,M.iron); rimc.position.set(0.44,3.94,0.42); g.add(rimc);
+  // ladder on the -Z face
+  for(const lx of [-0.15,0.15]){
+    const rail = box(0.05,1.9,0.05,M.steel); rail.position.set(0.45+lx,1.4,-0.98); g.add(rail);
+  }
+  for(let k=0;k<7;k++){
+    const rung = box(0.33,0.04,0.05,M.steel); rung.position.set(0.45,0.6+k*0.28,-0.98); g.add(rung);
+  }
+  // output tunnel
+  const ofr = portFrame(1.25, 0.42, 1.42, 1.72, 1.85, 0.1, M.ironDark, 0.7);
+  ofr.position.x = 0.6;
+  g.add(ofr);
+  const oglow = box(0.06,0.045,1.05,M.amber); oglow.position.set(0.6,1.48,0); g.add(oglow);
+  const pin = portArrow(true, 0);  pin.position.set(-0.8, 1.005, 0);  g.add(pin);
+  const pout = portArrow(false, 0); pout.position.set(0.82, 1.005, 0); g.add(pout);
+  const light = new THREE.PointLight(0xb05a1c, 0.55, 3.4, 2);
+  light.position.set(-0.3,1.05,0); g.add(light);
+  const smoke = [];
+  for(let k=0;k<3;k++){
+    const p = new THREE.Mesh(new THREE.SphereGeometry(0.12,7,6),
+      std({color:0x241f1b, transparent:true, opacity:0, roughness:1}));
+    p.position.set(0.44, 3.98, 0.42);
+    p.castShadow = false;
+    g.add(p); smoke.push(p);
+  }
+  return {group:g, glowMat, light, smoke};
+}
+const SMELT_SPEED_F = [1, 1.6, 2.4];
+function placeSmelter(i,j,dir,tier){
+  tier = tier||0;
+  if(cells.has(keyOf(i,j)) || !inBounds(i,j)) return false;
+  _s = 300+i*17+j*5;
+  const b = buildSmelter(tier);
+  b.group.position.copy(tileCenter(i,j));
+  b.group.rotation.y = DIR_RY[dir];
+  b.group.traverse(o=>{ o.userData.tileKey = keyOf(i,j); });
+  scene.add(b.group);
+  cells.set(keyOf(i,j), {type:'smelter', i, j, dir, tier, smeltT:1.15/SMELT_SPEED_F[tier], group:b.group,
+    glowMat:b.glowMat, light:b.light, smoke:b.smoke, smokeT:rnd(),
+    queue:0, t:0, buffer:0, heat:0.3});
+  refreshConnections(i,j);
+  updateCounter();
+  return true;
+}
+const SMELT_Q = 3;
+function consumeIntoSmelter(cell, r, idx){
+  scene.remove(r.mesh);
+  riders.splice(idx,1);
+  cell.queue++;
+  const c = tileCenter(cell.i, cell.j);
+  pulseAt(c.x, c.z, 0.9);
+  updateCounter();
+}
+function updateSmelters(dt){
+  for(const cell of cells.values()){
+    if(cell.type!=='smelter') continue;
+    if(cell.t <= 0 && cell.queue > 0){ cell.queue--; cell.t = cell.smeltT || 1.15; }
+    if(cell.t > 0){
+      cell.t -= dt;
+      if(cell.t <= 0) cell.buffer = Math.min(cell.buffer+1, 4);
+    }
+    let outBlocked = false;
+    if(cell.buffer > 0){
+      const d = DIRS[cell.dir];
+      const oi = cell.i+d[0], oj = cell.j+d[1];
+      const out = cells.get(keyOf(oi,oj));
+      outBlocked = !(out && out.type==='belt' && ridersOn(oi,oj) < 2);
+      if(!outBlocked){
+        cell.buffer--;
+        _s = 77 + cell.i*3 + cell.j;
+        const ing = mkIngot();
+        const c = tileCenter(cell.i, cell.j);
+        const r2 = addRider(ing, c.x + d[0]*0.3, 1.0 + ing.userData.half, c.z + d[1]*0.3);
+        r2.ax = d[0]; r2.az = d[1];
+      }
+    }
+    cell.glowMat.emissive.setHex(outBlocked ? 0x8a2018 : 0xb05a1c);
+    cell._blk = outBlocked;
+    if(outBlocked){ cell.blockT = (cell.blockT||0) - dt; if(cell.blockT<=0){ toast('SMELTER OUTPUT BLOCKED'); cell.blockT = 6; } }
+    else cell.blockT = 0;
+    // glow + smoke
+    const active = cell.t > 0 || cell.queue > 0;
+    cell.heat = lerp(cell.heat, active ? 1 : 0.06, Math.min(1, 3*dt));
+    const flick = 1 + Math.sin(phase*11 + cell.i)*0.16;
+    cell.glowMat.emissiveIntensity = 0.16 + cell.heat*1.0*flick;
+    cell.light.intensity = 0.12 + cell.heat*0.85*flick;
+    cell.smokeT += dt*(0.1 + cell.heat*0.75);
+    cell.smoke.forEach((p,k)=>{
+      const f = mod(cell.smokeT + k/3, 1);
+      p.position.y = 3.98 + f*1.1;
+      p.position.x = 0.44 + Math.sin((f*3+k)*2.1)*0.07;
+      const s = 0.6 + f*1.1;
+      p.scale.setScalar(s);
+      p.material.opacity = (1-f) * 0.6 * cell.heat;
+    });
+  }
+}
+
+/* ================= arm rig (shared by big feeder + small transfer arms) ================= */
+function solveIKAt(base, A, B, SH, target){
+  const lx = target.x - base.x;
+  const lz = target.z - base.z;
+  const yaw = Math.atan2(lx, lz);
+  const rp = Math.sqrt(lx*lx + lz*lz);
+  const yy = target.y - SH;
+  let d = Math.sqrt(rp*rp + yy*yy);
+  d = clamp(d, Math.abs(A-B)+0.05, A+B-0.05);
+  const ph = Math.atan2(rp, yy);
+  const c1 = Math.acos(clamp((A*A + d*d - B*B)/(2*A*d), -1, 1));
+  const c2 = Math.acos(clamp((B*B + d*d - A*A)/(2*B*d), -1, 1));
+  const t1 = ph - c1, t2 = ph + c2;
+  return { yaw, s:t1, e:t2-t1, w:Math.PI - t2 };
+}
+function lerpAngle(a,b,t){
+  let d = b-a;
+  while(d > Math.PI) d -= Math.PI*2;
+  while(d < -Math.PI) d += Math.PI*2;
+  return a + d*t;
+}
+function mkArmRig(sc, accentPaint, accentGlow){
+  accentPaint = accentPaint || M.emberPaint;
+  accentGlow = accentGlow || M.emberGlow;
+  const A = 2.0*sc, B = 1.8*sc, SH = 1.05*sc, TIP = 0.58*sc;
+  const root = new THREE.Group();
+  const pad = cyl(0.85*sc,0.95*sc,0.16,16,M.stoneDark); pad.position.y=0.08; root.add(pad);
+  const ring = new THREE.Mesh(new THREE.TorusGeometry(0.72*sc,0.02,6,36), accentPaint);
+  ring.rotation.x = Math.PI/2; ring.position.y = 0.17; root.add(ring);
+  const baseC = cyl(0.42*sc,0.5*sc,0.42*sc,12,M.ironDark); baseC.position.y=0.16+0.21*sc; root.add(baseC);
+  const yawG = new THREE.Group(); yawG.position.y = 0.58*sc; root.add(yawG);
+  const turret = cyl(0.34*sc,0.4*sc,0.34*sc,12,M.iron); turret.position.y=0.17*sc; yawG.add(turret);
+  const turRing = new THREE.Mesh(new THREE.TorusGeometry(0.36*sc,0.028*sc,6,24), accentGlow);
+  turRing.rotation.x = Math.PI/2; turRing.position.y = 0.04*sc; yawG.add(turRing);
+  const shG = new THREE.Group(); shG.position.y = SH - 0.58*sc; yawG.add(shG);
+  shG.add(box(0.5*sc,0.42*sc,0.44*sc,M.iron));
+  const axle = cyl(0.14*sc,0.14*sc,0.62*sc,10,M.steel); axle.rotation.z=Math.PI/2; shG.add(axle);
+  const counter = box(0.34*sc,0.3*sc,0.42*sc,M.ironDark); counter.position.set(0,-0.05*sc,-0.5*sc); shG.add(counter);
+  const upper = box(0.26*sc,A,0.3*sc,M.iron); upper.position.y = A/2; shG.add(upper);
+  const stripe = box(0.27*sc,0.16*sc,0.31*sc,accentPaint); stripe.position.y=A*0.7; shG.add(stripe);
+  const rib1 = box(0.3*sc,0.05*sc,0.34*sc,M.ironDark); rib1.position.y=A*0.3; shG.add(rib1);
+  const elG = new THREE.Group(); elG.position.y = A; shG.add(elG);
+  const ej = cyl(0.17*sc,0.17*sc,0.42*sc,10,M.steel); ej.rotation.z=Math.PI/2; elG.add(ej);
+  const fore = box(0.2*sc,B,0.22*sc,M.ironDark); fore.position.y = B/2; elG.add(fore);
+  const rib2 = box(0.23*sc,0.05*sc,0.25*sc,M.iron); rib2.position.y=B*0.5; elG.add(rib2);
+  const wrG = new THREE.Group(); wrG.position.y = B; elG.add(wrG);
+  const wj = cyl(0.12*sc,0.12*sc,0.3*sc,10,M.steel); wj.rotation.z=Math.PI/2; wrG.add(wj);
+  const palm = box(0.3*sc,0.14*sc,0.2*sc,M.iron); palm.position.y=0.14*sc; wrG.add(palm);
+  const fingers = [];
+  for(const s of [-1,1]){
+    const fg = new THREE.Group();
+    fg.position.set(s*0.14*sc, 0.2*sc, 0);
+    const f1 = box(0.06*sc,0.26*sc,0.12*sc,M.ironDark); f1.position.y=0.13*sc; fg.add(f1);
+    const f2 = box(0.055*sc,0.2*sc,0.1*sc,M.iron);
+    f2.position.set(-s*0.05*sc,0.3*sc,0); f2.rotation.z = s*0.5; fg.add(f2);
+    wrG.add(fg);
+    fingers.push({g:fg, s});
+  }
+  const socket = new THREE.Object3D(); socket.position.y = TIP - 0.06*sc; wrG.add(socket);
+  return {root, yawG, shG, elG, wrG, fingers, socket, A, B, SH, TIP};
+}
+/* generic sequenced arm controller */
+function mkArmCtl(rig, basePos){
+  return {rig, basePos,
+    joints:{yaw:Math.PI*0.8, s:0.35, e:0.9, w:Math.PI-1.25, open:1},
+    seq:null, seqI:0, phaseT:0, phaseFrom:null, held:null};
+}
+function armPose(ctl, point){
+  const ik = solveIKAt(ctl.basePos, ctl.rig.A, ctl.rig.B, ctl.rig.SH, point);
+  return {yaw:ik.yaw, s:ik.s, e:ik.e, w:ik.w};
+}
+function armStartSeq(ctl, seq){
+  ctl.seq = seq; ctl.seqI = 0; ctl.phaseT = 0;
+  const j = ctl.joints;
+  ctl.phaseFrom = {yaw:j.yaw, s:j.s, e:j.e, w:j.w, open:j.open};
+}
+function armApply(ctl){
+  const r = ctl.rig, j = ctl.joints;
+  r.yawG.rotation.y = j.yaw;
+  r.shG.rotation.x = j.s;
+  r.elG.rotation.x = j.e;
+  r.wrG.rotation.x = j.w;
+  for(const f of r.fingers) f.g.rotation.z = f.s*lerp(0.12, 0.6, j.open);
+}
+function armUpdate(ctl, dt){
+  if(!ctl.seq){ armApply(ctl); return false; }
+  const ph = ctl.seq[ctl.seqI];
+  ctl.phaseT += dt/ph.t;
+  const k = ease(ctl.phaseT);
+  const j = ctl.joints, f0 = ctl.phaseFrom;
+  j.yaw = lerpAngle(f0.yaw, ph.p.yaw, k);
+  j.s = lerp(f0.s, ph.p.s, k);
+  j.e = lerp(f0.e, ph.p.e, k);
+  j.w = lerp(f0.w, ph.p.w, k);
+  j.open = lerp(f0.open, ph.open, k);
+  armApply(ctl);
+  if(ctl.phaseT >= 1){
+    if(ph.onEnd) ph.onEnd();
+    ctl.seqI++; ctl.phaseT = 0;
+    ctl.phaseFrom = {yaw:j.yaw, s:j.s, e:j.e, w:j.w, open:j.open};
+    if(ctl.seqI >= ctl.seq.length) ctl.seq = null;
+  }
+  return true;
+}
+
+/* ================= big feeder arm + containers ================= */
+const ARM_POS = new THREE.Vector3(4, 0, 4);
+const bigRig = mkArmRig(1);
+bigRig.root.position.copy(ARM_POS);
+scene.add(bigRig.root);
+for(let i=0;i<6;i++){
+  const bolt = cyl(0.05,0.05,0.06,6,M.steel);
+  const a=i/6*Math.PI*2;
+  bolt.position.set(Math.cos(a)*0.42, 0.2, Math.sin(a)*0.42);
+  bigRig.root.add(bolt);
+}
+const bigArm = mkArmCtl(bigRig, ARM_POS);
+armApply(bigArm);
+const jobQueue = [];
+const REACH = 3.1;
+
+function findDropTile(){
+  let best = null, bd = 1e9;
+  for(const rec of cells.values()){
+    if(rec.type!=='belt') continue;
+    const c = tileCenter(rec.i, rec.j);
+    const dx = c.x-ARM_POS.x, dz = c.z-ARM_POS.z;
+    const d = Math.sqrt(dx*dx+dz*dz);
+    if(d < bd && d <= REACH){ bd = d; best = rec; }
+  }
+  return best;
+}
+function startFeedJob(ci){
+  const drop = findDropTile();
+  if(!drop){ toast('NO BELT WITHIN ARM REACH — BUILD ONE CLOSER'); return; }
+  if(ridersOn(drop.i, drop.j) >= 2){ jobQueue.unshift(ci); return; } // belt full: wait
+  const c = containers[ci];
+  const grab = c.grabPoint;
+  const dc = tileCenter(drop.i, drop.j);
+  const dy = drop.pc.topY + 0.32;
+  const T2 = bigRig.TIP;
+  const wristGrab   = new THREE.Vector3(grab.x, grab.y + T2, grab.z);
+  const wristHover  = new THREE.Vector3(grab.x, grab.y + T2 + 0.9, grab.z);
+  const wristDrop   = new THREE.Vector3(dc.x, dy + T2 + 0.1, dc.z);
+  const wristDropHi = new THREE.Vector3(dc.x, dy + T2 + 1.0, dc.z);
+  armStartSeq(bigArm, [
+    {p:armPose(bigArm,wristHover),  open:1, t:0.6},
+    {p:armPose(bigArm,wristGrab),   open:1, t:0.34},
+    {p:armPose(bigArm,wristGrab),   open:0, t:0.2, onEnd:()=>{
+      const item = containers[ci].makeItem();
+      item.traverse(o=>{ if(o.isMesh) o.castShadow = true; });
+      bigRig.socket.add(item);
+      item.position.set(0,0,0);
+      bigArm.held = item;
+    }},
+    {p:armPose(bigArm,wristHover),  open:0, t:0.32},
+    {p:armPose(bigArm,wristDropHi), open:0, t:0.62},
+    {p:armPose(bigArm,wristDrop),   open:0, t:0.34},
+    {p:armPose(bigArm,wristDrop),   open:1, t:0.18, onEnd:()=>{
+      if(!bigArm.held) return;
+      const wp = new THREE.Vector3();
+      bigRig.socket.getWorldPosition(wp);
+      bigRig.socket.remove(bigArm.held);
+      const d2 = findDropTile();
+      if(d2 && ridersOn(d2.i, d2.j) < 2){
+        spawnRiderAt(bigArm.held, d2.i, d2.j);
+      } else {
+        const r = addRider(bigArm.held, wp.x, wp.y, wp.z);
+        r.falling = true; r.ax = 0; r.az = 0;
+      }
+      bigArm.held = null;
+    }},
+    {p:armPose(bigArm,wristDropHi), open:1, t:0.3}
+  ]);
+}
+function updateBigArm(dt){
+  if(!bigArm.seq && jobQueue.length) startFeedJob(jobQueue.shift());
+  armUpdate(bigArm, dt);
+}
+
+/* containers, grid-snapped so transfer arms can also pull from them */
+function padc(g, r){
+  const p = cyl(r, r+0.12, 0.14, 12, M.stoneDark);
+  p.position.y = 0.07; p.receiveShadow = true; g.add(p);
+}
+function buildHopper(){
+  const g = new THREE.Group(); padc(g, 1.0);
+  for(let i=0;i<4;i++){
+    const a = i/4*Math.PI*2 + Math.PI/4;
+    const leg = box(0.12,1.0,0.12,M.ironDark);
+    leg.position.set(Math.cos(a)*0.66, 0.6, Math.sin(a)*0.66);
+    g.add(leg);
+  }
+  const funnel = cyl(0.85, 0.32, 0.75, 4, M.iron);
+  funnel.position.y = 0.9; funnel.rotation.y = Math.PI/4;
+  g.add(funnel);
+  const rim = box(1.35,0.12,1.35,M.ironDark); rim.position.y=1.3; g.add(rim);
+  const rimIn = box(1.15,0.14,1.15,M.dark); rimIn.position.y=1.29; g.add(rimIn);
+  const hz = box(1.36,0.14,0.03,M.hazard); hz.position.set(0,1.12,0.68); g.add(hz);
+  for(let i=0;i<6;i++){
+    const it = mkOre();
+    it.position.set(rr(-0.35,0.35), 1.4, rr(-0.35,0.35));
+    it.rotation.y = rnd()*Math.PI;
+    g.add(it);
+  }
+  return {g, grabY:1.55, makeItem:mkOre, name:'ORE HOPPER'};
+}
+function buildCrateBin(){
+  const g = new THREE.Group(); padc(g, 1.0);
+  const b = box(1.5,0.12,1.5,M.woodDark); b.position.y=0.2; g.add(b);
+  for(const [dx,dz,ry] of [[0,-0.72,0],[0,0.72,0],[-0.72,0,Math.PI/2],[0.72,0,Math.PI/2]]){
+    const wall = box(1.5,0.85,0.09,M.wood);
+    wall.position.set(dx,0.62,dz); wall.rotation.y=ry; g.add(wall);
+  }
+  for(const a of [0,1,2,3]){
+    const post = box(0.13,1.0,0.13,M.woodDark);
+    post.position.set((a%2?1:-1)*0.72, 0.68, (a<2?1:-1)*0.72); g.add(post);
+  }
+  for(let i=0;i<4;i++){
+    const c = mkCrate();
+    c.position.set(rr(-0.4,0.4), 0.5+((i/2)|0)*0.44, rr(-0.4,0.4));
+    c.rotation.y = rnd()*Math.PI;
+    g.add(c);
+  }
+  return {g, grabY:1.2, makeItem:mkCrate, name:'CRATE BIN'};
+}
+function buildGemBasin(){
+  const g = new THREE.Group(); padc(g, 1.05);
+  const basin = cyl(0.85, 0.95, 0.75, 10, M.stone);
+  basin.position.y = 0.5; g.add(basin);
+  const inner = cyl(0.72, 0.72, 0.2, 10, std({color:0x1c1a17, roughness:1}));
+  inner.position.y = 0.83; g.add(inner);
+  const rim = new THREE.Mesh(new THREE.TorusGeometry(0.82, 0.07, 8, 12), M.stoneDark);
+  rim.rotation.x = Math.PI/2; rim.position.y = 0.9; g.add(rim);
+  for(let i=0;i<9;i++){
+    const gem = mkGem();
+    const a = rnd()*Math.PI*2, r = rnd()*0.5;
+    gem.position.set(Math.cos(a)*r, 0.98, Math.sin(a)*r);
+    gem.rotation.set(rnd()*3,rnd()*3,rnd()*3);
+    g.add(gem);
+  }
+  const glow = new THREE.PointLight(0xb06a20, 0.35, 2.6, 2);
+  glow.position.y = 1.3; g.add(glow);
+  return {g, grabY:1.15, makeItem:mkGem, name:'GEM BASIN'};
+}
+function buildCagePallet(){
+  const g = new THREE.Group(); padc(g, 1.0);
+  const b = box(1.5,0.16,1.5,M.ironDark); b.position.y=0.22; g.add(b);
+  for(const a of [0,1,2,3]){
+    const post = box(0.09,1.1,0.09,M.iron);
+    post.position.set((a%2?1:-1)*0.7, 0.75, (a<2?1:-1)*0.7); g.add(post);
+  }
+  for(const dz of [-0.7,0.7]) for(const y of [0.55,0.95]){
+    const bar = box(1.48,0.06,0.06,M.iron); bar.position.set(0,y,dz); g.add(bar);
+  }
+  for(const dx of [-0.7,0.7]) for(const y of [0.55,0.95]){
+    const bar = box(0.06,0.06,1.48,M.iron); bar.position.set(dx,y,0); g.add(bar);
+  }
+  for(let i=0;i<5;i++){
+    const bl = mkBlock();
+    bl.position.set(rr(-0.4,0.4), 0.46+((i/3)|0)*0.32, rr(-0.4,0.4));
+    g.add(bl);
+  }
+  return {g, grabY:1.25, makeItem:mkBlock, name:'CAGE PALLET'};
+}
+function buildSackStand(){
+  const g = new THREE.Group(); padc(g, 1.05);
+  const plat = box(1.6,0.3,1.4,M.wood); plat.position.y=0.32; g.add(plat);
+  for(const [dx,dz] of [[-0.65,-0.55],[0.65,-0.55],[-0.65,0.55],[0.65,0.55]]){
+    const foot = box(0.16,0.2,0.16,M.woodDark); foot.position.set(dx,0.1,dz); g.add(foot);
+  }
+  for(let i=0;i<5;i++){
+    const s = mkSack();
+    s.position.set(rr(-0.45,0.45), 0.66+((i/3)|0)*0.3, rr(-0.35,0.35));
+    s.rotation.y = rnd()*Math.PI;
+    g.add(s);
+  }
+  const barrel = new THREE.Group();
+  const bb = cyl(0.3,0.34,0.8,10,M.wood); bb.position.y=0.4; barrel.add(bb);
+  for(const y of [0.18,0.62]){
+    const band = new THREE.Mesh(new THREE.TorusGeometry(0.335,0.025,6,14), M.ironDark);
+    band.rotation.x = Math.PI/2; band.position.y = y; barrel.add(band);
+  }
+  barrel.position.set(1.15,0,0.35); g.add(barrel);
+  return {g, grabY:0.98, makeItem:mkSack, name:'SACK STAND'};
+}
+
+const containers = [];
+{
+  const defs = [
+    [buildHopper,    3, 2],
+    [buildGemBasin,  3, 3],
+    [buildCrateBin,  2, 3],
+    [buildCagePallet,1, 3],
+    [buildSackStand, 1, 2]
+  ];
+  defs.forEach(([b, ti, tj], i)=>{
+    _s = 900+i*31;
+    const c = b();
+    const p = tileCenter(ti,tj);
+    c.g.position.copy(p);
+    c.g.rotation.y = Math.atan2(ARM_POS.x-p.x, ARM_POS.z-p.z);
+    scene.add(c.g);
+    c.grabPoint = new THREE.Vector3(p.x, c.grabY, p.z);
+    c.g.userData.containerIndex = i;
+    c.tile = [ti,tj];
+    containers.push(c);
+    cells.set(keyOf(ti,tj), {type:'prop', i:ti, j:tj, container:c});
+  });
+  cells.set(keyOf(2,2), {type:'prop', i:2, j:2}); // big arm pedestal tile
+}
+
+/* ================= placeable transfer arms ================= */
+const ARM_SPEED_F = [1, 1.6, 2.4];
+function placeArm(i,j,dir,tier){
+  tier = tier||0;
+  if(cells.has(keyOf(i,j)) || !inBounds(i,j)) return false;
+  const rig = mkArmRig(0.72, TIER_PAINT()[tier], tier===0?M.emberGlow:TIER_PAINT()[tier]);
+  const p = tileCenter(i,j);
+  rig.root.position.copy(p);
+  rig.root.traverse(o=>{ o.userData.tileKey = keyOf(i,j); });
+  scene.add(rig.root);
+  const ctl = mkArmCtl(rig, p);
+  ctl.joints.yaw = DIR_RY[dir] + Math.PI;
+  armApply(ctl);
+  const markers = new THREE.Group();
+  const ain = portArrow(true, 0);  ain.position.set(-0.72, 0.2, 0);  markers.add(ain);
+  const aout = portArrow(false, 0); aout.position.set(0.72, 0.2, 0); markers.add(aout);
+  markers.rotation.y = DIR_RY[dir];
+  rig.root.add(markers);
+  cells.set(keyOf(i,j), {type:'arm', i, j, dir, tier, speedF:ARM_SPEED_F[tier], group:rig.root, rig, ctl, markers, coolT:0.4});
+  updateCounter();
+  return true;
+}
+function startTransfer(cell, grabP, dropP, onGrab, onRelease){
+  const ctl = cell.ctl, T2 = cell.rig.TIP, f = cell.speedF || 1;
+  const wristGrab  = new THREE.Vector3(grabP.x, grabP.y + T2, grabP.z);
+  const wristHover = new THREE.Vector3(grabP.x, grabP.y + T2 + 0.55, grabP.z);
+  const wristDrop  = new THREE.Vector3(dropP.x, dropP.y + T2 + 0.08, dropP.z);
+  const wristDropHi= new THREE.Vector3(dropP.x, dropP.y + T2 + 0.55, dropP.z);
+  armStartSeq(ctl, [
+    {p:armPose(ctl,wristHover),  open:1, t:0.24/f},
+    {p:armPose(ctl,wristGrab),   open:1, t:0.18/f},
+    {p:armPose(ctl,wristGrab),   open:0, t:0.13/f, onEnd:onGrab},
+    {p:armPose(ctl,wristHover),  open:0, t:0.16/f},
+    {p:armPose(ctl,wristDropHi), open:0, t:0.36/f},
+    {p:armPose(ctl,wristDrop),   open:0, t:0.16/f},
+    {p:armPose(ctl,wristDrop),   open:1, t:0.1/f, onEnd:onRelease},
+    {p:armPose(ctl,wristDropHi), open:1, t:0.2/f}
+  ]);
+}
+function updateSmallArms(dt){
+  for(const cell of cells.values()){
+    if(cell.type!=='arm') continue;
+    if(armUpdate(cell.ctl, dt)) continue;
+    cell.coolT -= dt;
+    if(cell.coolT > 0) continue;
+    const ctl = cell.ctl;
+    const d = DIRS[cell.dir];
+    const inI = cell.i-d[0], inJ = cell.j-d[1];
+    const outI = cell.i+d[0], outJ = cell.j+d[1];
+    const outCell = cells.get(keyOf(outI,outJ));
+    const oc = tileCenter(outI,outJ);
+    let dropP = null, onRelease = null;
+    if(outCell && outCell.type==='belt' && ridersOn(outI,outJ) < 2){
+      dropP = new THREE.Vector3(oc.x, outCell.pc.topY + 0.28, oc.z);
+      onRelease = ()=>{
+        if(!ctl.held) return;
+        const {mesh, half} = ctl.held;
+        cell.rig.socket.remove(mesh);
+        addRider(mesh, dropP.x, dropP.y + half, dropP.z);
+        ctl.held = null;
+      };
+    } else if(outCell && outCell.type==='storage' && outCell.core.count < outCell.core.cap){
+      dropP = new THREE.Vector3(oc.x, 1.56, oc.z);
+      onRelease = ()=>{
+        if(!ctl.held) return;
+        const {mesh, half} = ctl.held;
+        cell.rig.socket.remove(mesh);
+        depositMesh(outCell.core, mesh);
+        ctl.held = null;
+      };
+    }
+    if(!dropP) continue;
+    const inCell = cells.get(keyOf(inI,inJ));
+    const bp = ctl.basePos;
+    if(inCell && inCell.type==='belt'){
+      let target = null;
+      for(const r of riders){
+        if(r.claimed || r.falling || r.layer!==0) continue;
+        const [ti,tj] = tileAt(r.mesh.position.x, r.mesh.position.z);
+        if(ti!==inI || tj!==inJ) continue;
+        const dx = r.mesh.position.x-bp.x, dz = r.mesh.position.z-bp.z;
+        if(Math.sqrt(dx*dx+dz*dz) > 2.25) continue;
+        target = r; break;
+      }
+      if(!target) continue;
+      target.claimed = true;
+      const gp = target.mesh.position.clone();
+      startTransfer(cell, gp, dropP, ()=>{
+        const idx = riders.indexOf(target);
+        if(idx>=0) riders.splice(idx,1);
+        scene.remove(target.mesh);
+        cell.rig.socket.add(target.mesh);
+        target.mesh.position.set(0,0,0);
+        target.mesh.rotation.set(0,0,0);
+        ctl.held = {mesh:target.mesh, half:target.half};
+        updateCounter();
+      }, onRelease);
+      cell.coolT = 0.25/(cell.speedF||1);
+    } else if(inCell && inCell.type==='storage' && inCell.core.count > 0){
+      const ic = tileCenter(inI,inJ);
+      const gp = new THREE.Vector3(ic.x, 1.58, ic.z);
+      startTransfer(cell, gp, dropP, ()=>{
+        const mesh = withdrawMesh(inCell.core);
+        cell.rig.socket.add(mesh);
+        mesh.position.set(0,0,0);
+        mesh.rotation.set(0,0,0);
+        ctl.held = {mesh, half:mesh.userData.half||0.2};
+      }, onRelease);
+      cell.coolT = 0.5/(cell.speedF||1);
+    } else if(inCell && inCell.type==='prop' && inCell.container){
+      const cont = inCell.container;
+      startTransfer(cell, cont.grabPoint, dropP, ()=>{
+        const it = cont.makeItem();
+        it.traverse(o=>{ if(o.isMesh) o.castShadow = true; });
+        it.traverse(o=>{ if(o.material){ o.material=o.material.clone(); o.material.transparent=true; } });
+        cell.rig.socket.add(it);
+        it.position.set(0,0,0);
+        ctl.held = {mesh:it, half:it.userData.half||0.2};
+      }, onRelease);
+      cell.coolT = 0.9/(cell.speedF||1);
+    }
+  }
+}
+
+/* ================= floating machine status labels ================= */
+const mlPool = new Map();
+const _mlv = new THREE.Vector3();
+function updateMachineLabels(){
+  const wrap = document.getElementById('mlabels');
+  if(!wrap) return;
+  const seen = new Set();
+  const W = innerWidth, H = innerHeight;
+  for(const cell of cells.values()){
+    let txt = null, bad = false, wx, wz, wy;
+    if(cell.type==='smelter'){
+      wx = cell.i*2; wz = cell.j*2; wy = 4.0;
+      if(cell._blk){ txt = 'OUTPUT BLOCKED'; bad = true; }
+      else if(cell.t > 0) txt = 'SMELTING…' + (cell.buffer ? ' · OUT '+cell.buffer : '');
+      else txt = 'IN ' + cell.queue + '/' + SMELT_Q + (cell.buffer ? ' · OUT '+cell.buffer : '');
+    } else if(cell.type==='storage' && cell.part===0){
+      const core = cell.core, d = DIRS[core.dir];
+      wx = (cell.i + d[0]*0.5)*2; wz = (cell.j + d[1]*0.5)*2; wy = 2.15;
+      txt = core.count + '/' + core.cap;
+      bad = core.count >= core.cap;
+    } else if(cell.type==='splitter' || cell.type==='merger'){
+      if(!cell._blk && cell.queue.length===0) continue; // quiet when flowing freely
+      wx = cell.i*2; wz = cell.j*2; wy = 2.4;
+      txt = cell._blk ? 'BLOCKED' : cell.queue.length + '/' + HUB_Q;
+      bad = !!cell._blk;
+    } else if(cell.type==='assembler' && cell.part===0){
+      const core = cell.core, d = DIRS[core.dir];
+      wx = (cell.i + d[0])*2; wz = (cell.j + d[1])*2; wy = 2.4;
+      if(core._blk){ txt = 'OUTPUT BLOCKED'; bad = true; }
+      else txt = 'A ' + core.inA + '/' + ASM_BUF + ' · B ' + core.inB + '/' + ASM_BUF + (core.t>0 ? ' · PRESSING…' : '');
+    } else if(cell.type==='sorter' && cell.part===0){
+      const core = cell.core, d = DIRS[core.dir];
+      wx = (cell.i + d[0])*2; wz = (cell.j + d[1])*2; wy = 2.5;
+      txt = 'QUEUE ' + core.queue.length + '/' + SORTER_Q;
+      bad = core.queue.length >= SORTER_Q;
+    }
+    if(txt===null) continue;
+    const key = cell.type + ':' + cell.i + ',' + cell.j;
+    seen.add(key);
+    let el = mlPool.get(key);
+    if(!el){
+      el = document.createElement('div');
+      el.className = 'ml';
+      wrap.appendChild(el);
+      mlPool.set(key, el);
+    }
+    _mlv.set(wx, wy, wz).project(camera);
+    const dx = camera.position.x - wx, dz = camera.position.z - wz;
+    const far = (dx*dx + dz*dz) > 24*24;
+    if(el._t !== txt){ el.textContent = txt; el._t = txt; }
+    el.classList.toggle('bad', bad);
+    if(_mlv.z > 1 || far || _mlv.x < -1.05 || _mlv.x > 1.05 || _mlv.y < -1.05 || _mlv.y > 1.05){
+      el.style.display = 'none';
+    } else {
+      el.style.display = 'block';
+      el.style.left = (((_mlv.x*0.5+0.5)*W)|0)+'px';
+      el.style.top = (((-_mlv.y*0.5+0.5)*H)|0)+'px';
+    }
+  }
+  for(const [k,el] of mlPool) if(!seen.has(k)){ el.remove(); mlPool.delete(k); }
+}
+
+/* ================= interactive ports: registry, hover glow, messages ================= */
+function portsOf(cell){
+  const res = [];
+  const T = cell.type;
+  if(T==='belt' || T==='prop') return res;
+  if((T==='sorter' || T==='assembler' || T==='storage') && cell.part!==0) return res;
+  const d = DIRS[cell.dir], lat = [-d[1], d[0]];
+  const i = cell.i, j = cell.j;
+  if(T==='smelter'){
+    res.push({ext:[i-d[0], j-d[1]], entry:cell.dir, inb:true,  label:'SMELTER INPUT'});
+    res.push({ext:[i+d[0], j+d[1]], entry:cell.dir, inb:false, label:'SMELTER OUTPUT'});
+  } else if(T==='storage'){
+    const o = cell.core.origin;
+    res.push({ext:[o[0]-d[0], o[1]-d[1]], entry:cell.core.dir, inb:true, label:'STORAGE INPUT'});
+    res.push({ext:[o[0]+2*d[0], o[1]+2*d[1]], entry:cell.core.dir, inb:false, label:'STORAGE OUTPUT'});
+  } else if(T==='arm'){
+    res.push({ext:[i-d[0], j-d[1]], entry:null, inb:true,  label:'ARM PICKUP SIDE'});
+    res.push({ext:[i+d[0], j+d[1]], entry:null, inb:false, label:'ARM DROP SIDE'});
+  } else if(T==='splitter'){
+    res.push({ext:[i-d[0], j-d[1]], entry:cell.dir, inb:true, label:'SPLITTER INPUT'});
+    res.push({ext:[i+d[0], j+d[1]], entry:cell.dir, inb:false, label:'SPLITTER OUTPUT'});
+    res.push({ext:[i+lat[0], j+lat[1]], entry:dirIndexOf(lat[0],lat[1]), inb:false, label:'SPLITTER OUTPUT'});
+    res.push({ext:[i-lat[0], j-lat[1]], entry:dirIndexOf(-lat[0],-lat[1]), inb:false, label:'SPLITTER OUTPUT'});
+  } else if(T==='merger'){
+    res.push({ext:[i-d[0], j-d[1]], entry:cell.dir, inb:true, label:'MERGER INPUT'});
+    res.push({ext:[i+lat[0], j+lat[1]], entry:dirIndexOf(-lat[0],-lat[1]), inb:true, label:'MERGER INPUT'});
+    res.push({ext:[i-lat[0], j-lat[1]], entry:dirIndexOf(lat[0],lat[1]), inb:true, label:'MERGER INPUT'});
+    res.push({ext:[i+d[0], j+d[1]], entry:cell.dir, inb:false, label:'MERGER OUTPUT'});
+  } else if(T==='assembler'){
+    const o = cell.core.origin;
+    res.push({ext:[o[0]+lat[0], o[1]+lat[1]], entry:dirIndexOf(-lat[0],-lat[1]), inb:true, label:'ASSEMBLER INPUT A'});
+    res.push({ext:[o[0]-lat[0], o[1]-lat[1]], entry:dirIndexOf(lat[0],lat[1]), inb:true, label:'ASSEMBLER INPUT B'});
+    res.push({ext:[o[0]+2*d[0], o[1]+2*d[1]], entry:cell.core.dir, inb:false, label:'PRODUCT OUTPUT'});
+  } else if(T==='sorter'){
+    const o = cell.core.origin;
+    res.push({ext:[o[0]-d[0], o[1]-d[1]], entry:cell.core.dir, inb:true, label:'SORTER INPUT'});
+    res.push({ext:[o[0]+3*d[0], o[1]+3*d[1]], entry:(cell.core.dir+2)%4, inb:true, label:'SORTER INPUT'});
+    for(let p=0;p<3;p++) for(const s of [1,-1]){
+      res.push({ext:[o[0]+p*d[0]+s*lat[0], o[1]+p*d[1]+s*lat[1]],
+                entry:dirIndexOf(s*lat[0], s*lat[1]), inb:false, label:'SORTER OUTPUT'});
+    }
+  }
+  return res;
+}
+function portsForTile(ti,tj){
+  const out = [];
+  for(const cell of cells.values()){
+    for(const p of portsOf(cell)){
+      if(p.ext[0]===ti && p.ext[1]===tj) out.push({cell, p});
+    }
+  }
+  return out;
+}
+function machineFull(cell, dirIdx){
+  if(cell.type==='smelter') return cell.queue >= SMELT_Q;
+  if(cell.type==='storage') return cell.core.count >= cell.core.cap;
+  if(cell.type==='sorter') return cell.core.queue.length >= SORTER_Q;
+  if(cell.type==='assembler') return !assemblerAccepts(cell, dirIdx);
+  if(cell.type==='splitter'||cell.type==='merger') return cell.queue.length >= HUB_Q;
+  return false;
+}
+/* single hover-glow overlay */
+const portGlow = (()=>{
+  const g = new THREE.Group();
+  const arrow = new THREE.Mesh(new THREE.ShapeGeometry(PORT_SHAPE),
+    std({color:0x5c8a52, emissive:0x5c8a52, emissiveIntensity:1.0, transparent:true, opacity:0.95, depthWrite:false, side:THREE.DoubleSide}));
+  arrow.rotation.x = -Math.PI/2;
+  arrow.scale.setScalar(2.2);
+  g.add(arrow);
+  const ring = new THREE.Mesh(new THREE.TorusGeometry(0.62,0.035,6,28),
+    std({color:0x5c8a52, emissive:0x5c8a52, emissiveIntensity:0.9, transparent:true, opacity:0.85, depthWrite:false}));
+  ring.rotation.x = Math.PI/2;
+  g.add(ring);
+  g.visible = false;
+  scene.add(g);
+  return {g, arrow, ring};
+})();
+function setPortGlow(x, z, yaw, state){
+  const col = state==='in' ? 0x5c8a52 : state==='out' ? 0xb06a20 : 0xa03325;
+  portGlow.arrow.material.color.setHex(col);
+  portGlow.arrow.material.emissive.setHex(col);
+  portGlow.ring.material.color.setHex(col);
+  portGlow.ring.material.emissive.setHex(col);
+  portGlow.g.position.set(x, 0.24, z);
+  portGlow.g.rotation.y = yaw;
+  portGlow.g.visible = true;
+}
+function hidePortGlow(){ portGlow.g.visible = false; }
+
+/* placement snapping: machine ghosts auto-orient to nearby belts */
+let snapKey = '', snapLock = false;
+function snapDirFor(ti, tj){
+  // feeders first: a belt pointing into this tile becomes the input
+  for(let w=0; w<4; w++){
+    const n = cells.get(keyOf(ti+DIRS[w][0], tj+DIRS[w][1]));
+    if(n && n.type==='belt' && !n.ramp && n.dir===(w+2)%4){
+      const md = (w+2)%4; // item flow direction into the tile
+      if(activeTool==='assembler') return (md+1)%4; // side port faces the feeder
+      return md; // smelter/storage/sorter/hubs/arm: input lines up with the flow
+    }
+  }
+  // otherwise: a belt flowing away becomes the output (single-tile outputs only)
+  for(let w=0; w<4; w++){
+    const n = cells.get(keyOf(ti+DIRS[w][0], tj+DIRS[w][1]));
+    if(n && n.type==='belt' && !n.ramp && n.dir===w){
+      if(activeTool==='smelter' || activeTool==='arm' || activeTool==='splitter' || activeTool==='merger') return w;
+    }
+  }
+  return null;
+}
+function applyGhostSnap(t){
+  if(!t || activeTool==='belt') { snapKey=''; return; }
+  const key = t[0]+','+t[1];
+  if(key === snapKey) return;
+  snapKey = key;
+  snapLock = false;
+  const s = snapDirFor(t[0], t[1]);
+  if(s !== null && !snapLock) ghostDir = s;
+}
+
+/* ================= build mode / ghost / tools ================= */
+let buildMode = true;
+let activeStyle = 0;
+let activeTool = 'belt'; // 'belt' | 'arm' | 'smelter'
+let ghost = null, ghostDir = 2, ghostTile = null, ghostValid = false, ghostShape = 'straight';
+
+/* click–drag–click path building (Dyson-style) */
+let anchor = null, anchorAxis = null, bendFlip = false, endCycle = 0, pathGroup = null, pathKey = '';
+
+/* undo (ctrl+Z): path commits, machine placements, removals */
+const undoStack = [];
+function pushUndo(u){ undoStack.push(u); if(undoStack.length > 60) undoStack.shift(); }
+function doUndo(){
+  const u = undoStack.pop();
+  if(!u){ toast('NOTHING TO UNDO'); return; }
+  if(u.kind==='path'){
+    for(let k=u.tiles.length-1;k>=0;k--){
+      const t = u.tiles[k];
+      if(t.elev) removeElev(t.i, t.j); else removeAt(t.i, t.j);
+    }
+    if(u.rotated){
+      const c = cells.get(keyOf(u.rotated.i, u.rotated.j));
+      if(c && c.type==='belt' && !c.ramp){
+        c.dir = u.rotated.prev;
+        c.pc.group.rotation.y = DIR_RY[c.dir];
+        refreshConnections(c.i, c.j);
+      }
+    }
+  } else if(u.kind==='place'){
+    removeAt(u.i, u.j);
+  } else if(u.kind==='remove'){
+    const d = u.data;
+    if(d.elev) placeElevated(d.i, d.j, d.dir);
+    else if(d.ramp) placeRamp(d.i, d.j, d.dir, d.ramp);
+    else if(d.type==='belt') placeBelt(d.i, d.j, d.dir, d.style);
+    else if(d.type==='arm') placeArm(d.i, d.j, d.dir, d.tier);
+    else if(d.type==='smelter') placeSmelter(d.i, d.j, d.dir, d.tier);
+    else if(d.type==='storage') placeStorage(d.i, d.j, d.dir, d.tier);
+    else if(d.type==='sorter') placeSorter(d.i, d.j, d.dir);
+    else if(d.type==='assembler') placeAssembler(d.i, d.j, d.dir);
+    else if(d.type==='splitter'||d.type==='merger') placeHub(d.i, d.j, d.dir, d.type);
+  }
+  toast('UNDONE');
+}
+function mkArrowMesh(){
+  const arrowShape = new THREE.Shape();
+  arrowShape.moveTo(-0.35,-0.28); arrowShape.lineTo(0.35,0); arrowShape.lineTo(-0.35,0.28); arrowShape.lineTo(-0.15,0); arrowShape.lineTo(-0.35,-0.28);
+  return new THREE.Mesh(new THREE.ShapeGeometry(arrowShape), std({color:0xb06a20, emissive:0xb06a20, emissiveIntensity:0.5, transparent:true, opacity:0.85, depthWrite:false, side:THREE.DoubleSide}));
+}
+function initialDirOrder(a, b, flip){
+  const di = b[0]-a[0], dj = b[1]-a[1];
+  const dirI = di>0?0:2, dirJ = dj>0?1:3;
+  let primary = anchorAxis ? (anchorAxis==='i' ? dirI : dirJ)
+                           : (Math.abs(di)>=Math.abs(dj) ? dirI : dirJ);
+  let secondary = primary===dirI ? dirJ : dirI;
+  if(flip){ const t=primary; primary=secondary; secondary=t; }
+  return [primary, secondary, ...[0,1,2,3].filter(d=>d!==primary&&d!==secondary)];
+}
+/* shortest-route pathfinder: Dijkstra over (tile, heading, justLanded).
+   Free tiles cost 1, turns cost a hair extra (prefers clean L-routes),
+   ground-belt runs are crossed via bridge macros (straight entry, straight exit),
+   machines and props are routed AROUND. */
+function beltPath(a, b, flip){
+  if(a[0]===b[0] && a[1]===b[1]) return [{i:a[0], j:a[1], dir:ghostDir}];
+  const W=21, off=10;
+  const NS = W*W*4*2;
+  const idx = (i,j,h,jl)=> ((((j+off)*W + (i+off))*4 + h)<<1) | jl;
+  const dist = new Float64Array(NS).fill(Infinity);
+  const par = new Int32Array(NS).fill(-9);
+  const pspan = new Int8Array(NS).fill(0);
+  const freeAt = (i,j)=> inBounds(i,j) && !cells.has(keyOf(i,j)) && !cells2.has(keyOf(i,j));
+  const goalCell = cells.get(keyOf(b[0],b[1]));
+  const goalOpen = freeAt(b[0],b[1]);
+  const goalEnter = !goalOpen && goalCell && goalCell.type!=='prop' && !cells2.has(keyOf(b[0],b[1]));
+  const enterOK = d => {
+    if(!goalCell) return true;
+    if(goalCell.type==='belt') return goalCell.dir !== (d+2)%4;      // no head-on merges
+    if(goalCell.type==='smelter') return goalCell.dir === d;
+    if(goalCell.type==='storage') return storageAccepts(goalCell, d) || (goalCell.part===0 && goalCell.core.dir===d);
+    if(goalCell.type==='arm') return goalCell.dir === d;
+    if(goalCell.type==='sorter') return sorterAccepts(goalCell, d);
+    if(goalCell.type==='assembler') return assemblerAccepts(goalCell, d);
+    if(goalCell.type==='splitter' || goalCell.type==='merger') return hubAccepts(goalCell, d);
+    return false;
+  };
+  function tryBridge(pi,pj,d){
+    const dd=DIRS[d];
+    let span=0;
+    while(span<3){
+      const xi=pi+dd[0]*(span+1), xj=pj+dd[1]*(span+1);
+      if(!inBounds(xi,xj)) break;
+      const g=cells.get(keyOf(xi,xj));
+      if(g && g.type==='belt' && !g.ramp && !cells2.has(keyOf(xi,xj))) span++;
+      else break;
+    }
+    if(span<1) return null;
+    const li=pi+dd[0]*(span+1), lj=pj+dd[1]*(span+1);
+    if(!freeAt(li,lj)) return null;
+    return {span, li, lj};
+  }
+  const pq=[];
+  function push(c,s,p,sp){ if(c < dist[s]-1e-12){ dist[s]=c; par[s]=p; pspan[s]=sp; pq.push({c,s}); } }
+  initialDirOrder(a,b,flip).forEach((d,oi)=>{
+    const dd=DIRS[d], ti=a[0]+dd[0], tj=a[1]+dd[1];
+    const bias = oi*1e-6;
+    if(freeAt(ti,tj) || (ti===b[0]&&tj===b[1]&&goalEnter&&enterOK(d))) push(1+bias, idx(ti,tj,d,0), -1-d, 0);
+    if(freeAt(a[0],a[1])){
+      const m=tryBridge(a[0],a[1],d);
+      if(m) push(m.span+2+bias, idx(m.li,m.lj,d,1), -1-d, m.span);
+    }
+  });
+  let goalState=-1;
+  while(pq.length){
+    let bi=0;
+    for(let x=1;x<pq.length;x++) if(pq[x].c<pq[bi].c) bi=x;
+    const {c,s}=pq.splice(bi,1)[0];
+    if(c>dist[s]+1e-12) continue;
+    const jl=s&1, h=(s>>1)&3, cellI=(s>>3)%W-off, cellJ=((s>>3)/W|0)-off;
+    if(cellI===b[0] && cellJ===b[1]){ goalState=s; break; }
+    for(let d=0;d<4;d++){
+      if(jl && d!==h) continue;
+      if((d+2)%4===h) continue;
+      const dd=DIRS[d], ti=cellI+dd[0], tj=cellJ+dd[1];
+      const turn = d===h ? 0 : 0.02;
+      if(freeAt(ti,tj) || (ti===b[0]&&tj===b[1]&&goalEnter&&enterOK(d))) push(c+1+turn, idx(ti,tj,d,0), s, 0);
+      if(!jl && d===h){
+        const m=tryBridge(cellI,cellJ,d);
+        if(m) push(c+m.span+2, idx(m.li,m.lj,d,1), s, m.span);
+      }
+    }
+  }
+  if(goalState<0) return [{i:a[0], j:a[1], dir:ghostDir}]; // unreachable: anchor only
+  // reconstruct
+  const chain=[];
+  let s=goalState;
+  while(s>=0){
+    chain.push({i:(s>>3)%W-off, j:((s>>3)/W|0)-off, h:(s>>1)&3, span:pspan[s]});
+    s=par[s];
+  }
+  chain.reverse();
+  const recs=[{i:a[0], j:a[1], dir:chain[0].h}];
+  for(const st of chain){
+    if(st.span>0){
+      recs[recs.length-1].ramp='up';
+      const dd=DIRS[st.h], p=recs[recs.length-1];
+      for(let s2=1;s2<=st.span;s2++) recs.push({i:p.i+dd[0]*s2, j:p.j+dd[1]*s2, dir:st.h, elev:true});
+      recs.push({i:st.i, j:st.j, dir:st.h, ramp:'down'});
+    } else {
+      recs.push({i:st.i, j:st.j, dir:st.h});
+    }
+  }
+  for(let k=0;k<recs.length-1;k++){
+    if(recs[k].ramp || recs[k].elev) continue;
+    const di=recs[k+1].i-recs[k].i, dj=recs[k+1].j-recs[k].j;
+    const nd=DIRS.findIndex(dd=>dd[0]===di && dd[1]===dj);
+    if(nd>=0) recs[k].dir=nd;
+  }
+  if(goalEnter && recs.length>1 && recs[recs.length-1].i===b[0] && recs[recs.length-1].j===b[1]){
+    recs.pop();
+  } else {
+    // open endpoint: turn the last piece to CONNECT into an adjacent acceptor when possible.
+    // R cycles through connect options and plain straight.
+    const lastR = recs[recs.length-1];
+    if(!lastR.ramp && !lastR.elev && !cells.has(keyOf(lastR.i,lastR.j))){
+      const h = lastR.dir;
+      const opts = [];
+      for(const d of [h, (h+1)%4, (h+3)%4]){
+        if(connectsFrom(lastR.i, lastR.j, d)) opts.push(d);
+      }
+      if(!opts.includes(h)) opts.push(h); // plain straight is always the fallback option
+      lastR.dir = opts[endCycle % opts.length];
+    }
+  }
+  return recs;
+}
+function connectsFrom(i,j,d){
+  const dd = DIRS[d];
+  const n = cells.get(keyOf(i+dd[0], j+dd[1]));
+  if(!n) return false;
+  if(n.type==='belt') return !n.ramp && n.dir !== (d+2)%4; // feed its back or side, never head-on
+  if(n.type==='smelter') return n.dir===d;                  // into the mouth
+  if(n.type==='storage') return n.part===0 && n.core.dir===d; // intake end only
+  if(n.type==='arm') return n.dir===d;                       // queue at its input
+  if(n.type==='sorter') return sorterAccepts({core:n.core, part:n.part}, d); // into an intake end
+  if(n.type==='splitter' || n.type==='merger') return hubAccepts(n, d);
+  return false;
+}
+function clearPathPreview(){
+  if(pathGroup){ scene.remove(pathGroup); pathGroup = null; }
+  pathKey = '';
+  lastRecs = null;
+  const ph = document.getElementById('pathHud');
+  if(ph) ph.classList.remove('on','bad');
+}
+function cancelAnchor(){ anchor = null; anchorAxis = null; endCycle = 0; clearPathPreview(); }
+let lastRecs = null;
+function buildPathPreview(recs){
+  clearPathPreview();
+  lastRecs = recs;
+  pathGroup = new THREE.Group();
+  const hyp = new Map();
+  recs.forEach((r, k)=>{
+    const key = keyOf(r.i, r.j);
+    const ex = cells.get(key);
+    if(!ex && !r.elev) hyp.set(key, {type:'belt', dir:r.dir, ramp:r.ramp});
+    else if(k===0 && recs.length>1 && ex.type==='belt' && ex.dir!==r.dir)
+      hyp.set(key, {type:'belt', dir:r.dir}); // continuation anchor rotating into the turn
+  });
+  const get = k => hyp.get(k) || cells.get(k);
+  for(const r of recs){
+    const key = keyOf(r.i, r.j);
+    if(cells.has(key) && !hyp.has(key) && !r.elev) continue; // untouched existing pieces
+    _s = 777;
+    let pc;
+    if(r.elev) pc = pc_over();
+    else if(r.ramp) pc = pc_ramp(r.ramp==='up');
+    else {
+      const shape = wouldBeShapeG(r.i, r.j, r.dir, get);
+      pc = shape==='straight'
+        ? BELT_STYLES[activeStyle].build(0)
+        : pc_corner(activeStyle, shape==='cornerP' ? 1 : -1);
+    }
+    pc.group.traverse(o=>{
+      if(o.isMesh){ o.material = M.ghostOK; o.castShadow=false; o.receiveShadow=false; }
+      if(o.isPointLight) o.intensity = 0;
+    });
+    const arrow = mkArrowMesh();
+    arrow.rotation.x = -Math.PI/2;
+    arrow.position.y = (r.elev || r.ramp) ? 2.14 : pc.topY + 0.12;
+    pc.group.add(arrow);
+    pc.group.position.copy(tileCenter(r.i, r.j));
+    pc.group.rotation.y = DIR_RY[r.dir];
+    pathGroup.add(pc.group);
+  }
+  scene.add(pathGroup);
+}
+function commitPath(recs){
+  const placedTiles = [];
+  let rotated = null;
+  // continuing from an existing belt with an immediate turn: that belt becomes the corner
+  if(recs.length > 1){
+    const first = cells.get(keyOf(recs[0].i, recs[0].j));
+    if(first && first.type==='belt' && !first.ramp && first.dir !== recs[0].dir){
+      rotated = {i:first.i, j:first.j, prev:first.dir};
+      first.dir = recs[0].dir;
+      first.pc.group.rotation.y = DIR_RY[first.dir];
+      refreshConnections(first.i, first.j);
+    }
+  }
+  for(const r of recs){
+    let ok = false;
+    if(r.elev) ok = placeElevated(r.i, r.j, r.dir);
+    else if(r.ramp) ok = placeRamp(r.i, r.j, r.dir, r.ramp);
+    else ok = placeBelt(r.i, r.j, r.dir, activeStyle);
+    if(ok) placedTiles.push({i:r.i, j:r.j, elev:!!r.elev});
+  }
+  if(placedTiles.length || rotated) pushUndo({kind:'path', tiles:placedTiles, rotated});
+  if(placedTiles.length){ sfx.belt(); const lt=placedTiles[placedTiles.length-1]; const cc=tileCenter(lt.i,lt.j); puffAt(cc.x, cc.z); }
+  else if(!rotated) sfx.err();
+  if(recs.length){
+    placePulse(recs[0].i, recs[0].j);
+    if(recs.length > 1) placePulse(recs[recs.length-1].i, recs[recs.length-1].j);
+  }
+  return placedTiles.length;
+}
+
+function rebuildGhost(){
+  if(ghost){ scene.remove(ghost); ghost = null; }
+  _s = 777;
+  let g, topA;
+  if(activeTool==='belt'){
+    const pc = ghostShape==='straight'
+      ? BELT_STYLES[activeStyle].build(0)
+      : pc_corner(activeStyle, ghostShape==='cornerP' ? 1 : -1);
+    g = pc.group; topA = pc.topY + 0.12;
+  } else if(activeTool==='arm'){
+    const tr = machineTier.arm;
+    const rig = mkArmRig(0.72, TIER_PAINT()[tr], tr===0?M.emberGlow:TIER_PAINT()[tr]);
+    const ctl = mkArmCtl(rig, new THREE.Vector3());
+    armApply(ctl);
+    g = rig.root; topA = 1.7;
+  } else if(activeTool==='storage'){
+    g = buildStorage().group; topA = 2.2;
+  } else if(activeTool==='assembler'){
+    g = buildAssembler().group; topA = 2.3;
+  } else if(activeTool==='splitter' || activeTool==='merger'){
+    g = buildHub(activeTool==='splitter').group; topA = 1.6;
+  } else if(activeTool==='sorter'){
+    const b = buildSorter();
+    for(let s=0;s<6;s++){
+      _s = 33+s;
+      const it = ITEM_KINDS[s].mk(); it.scale.setScalar(0.72); it.position.y=0.08;
+      b.displayMounts[s].add(it);
+    }
+    g = b.group; topA = 1.95;
+  } else {
+    const b = buildSmelter(machineTier.smelter);
+    g = b.group; topA = 3.0;
+  }
+  g.traverse(o=>{
+    if(o.isMesh){ o.material = M.ghostOK; o.castShadow = false; o.receiveShadow = false; }
+    if(o.isPointLight) o.intensity = 0;
+  });
+  const arrowShape = new THREE.Shape();
+  arrowShape.moveTo(-0.35,-0.28); arrowShape.lineTo(0.35,0); arrowShape.lineTo(-0.35,0.28); arrowShape.lineTo(-0.15,0); arrowShape.lineTo(-0.35,-0.28);
+  const arrow = new THREE.Mesh(new THREE.ShapeGeometry(arrowShape), std({color:0xb06a20, emissive:0xb06a20, emissiveIntensity:0.5, transparent:true, opacity:0.85, depthWrite:false, side:THREE.DoubleSide}));
+  arrow.rotation.x = -Math.PI/2;
+  arrow.position.y = topA;
+  ghost = new THREE.Group();
+  ghost.add(g); ghost.add(arrow);
+  ghost.visible = false;
+  scene.add(ghost);
+}
+function setGhostTint(ok){
+  ghost.traverse(o=>{
+    if(o.isMesh && (o.material===M.ghostOK || o.material===M.ghostBad)) o.material = ok ? M.ghostOK : M.ghostBad;
+  });
+}
+function setBuildMode(v){
+  buildMode = v;
+  gridH.visible = v;
+  if(ghost) ghost.visible = false;
+  hidePortGlow();
+  cancelAnchor();
+  document.getElementById('mode').classList.toggle('on', v);
+}
+const TOOL_LABEL = {arm:'06 · TRANSFER ARM', smelter:'07 · ORE SMELTER', storage:'08 · STORAGE', sorter:'09 · SORTER', assembler:'00 · ASSEMBLER', splitter:'SPLITTER — 1 IN · 3 OUT', merger:'MERGER — 3 IN · 1 OUT'};
+const machineTier = {arm:0, smelter:0, storage:0};
+const TIERED = new Set(['arm','smelter']);
+function refreshToolLabel(){
+  const el = document.getElementById('styleName');
+  el.textContent = activeTool==='belt'
+    ? '0'+(activeStyle+1)+' · '+BELT_STYLES[activeStyle].name
+    : TOOL_LABEL[activeTool] + (TIERED.has(activeTool) ? ' ' + TIER_NAME[machineTier[activeTool]] : '');
+  el.classList.remove('flash'); void el.offsetWidth; el.classList.add('flash');
+}
+function beltChain(rec){
+  const seen = new Set([rec]), stack = [rec];
+  while(stack.length && seen.size < 400){
+    const r = stack.pop();
+    const d = DIRS[r.dir];
+    const f = cells.get(keyOf(r.i+d[0], r.j+d[1]));
+    if(f && f.type==='belt' && !f.ramp && !seen.has(f)){ seen.add(f); stack.push(f); }
+    for(let w=0; w<4; w++){
+      const n = cells.get(keyOf(r.i+DIRS[w][0], r.j+DIRS[w][1]));
+      if(n && n.type==='belt' && !n.ramp && !seen.has(n) &&
+         DIRS[n.dir][0]===-DIRS[w][0] && DIRS[n.dir][1]===-DIRS[w][1]){ seen.add(n); stack.push(n); }
+    }
+  }
+  return [...seen];
+}
+function setActiveStyle(i, applyAll){
+  activeTool = 'belt';
+  activeStyle = ((i%3)+3)%3;
+  refreshToolLabel();
+  rebuildGhost();
+  const h = hoverCell();
+  if(applyAll){
+    if(h && h.type==='belt' && !h.ramp){
+      // upgrade the whole connected line
+      let n = 0;
+      for(const rec of beltChain(h)) if(restyleBelt(rec.i, rec.j, activeStyle)) n++;
+      if(n){ placePulse(h.i, h.j); sfx.up(); toast('LINE UPGRADED — '+BELT_STYLES[activeStyle].name); }
+    } else {
+      for(const rec of [...cells.values()]){
+        if(rec.type==='belt' && !rec.ramp) restyleBelt(rec.i, rec.j, activeStyle);
+      }
+    }
+  } else if(h && h.type==='belt' && !h.ramp){
+    if(restyleBelt(h.i, h.j, activeStyle)){ placePulse(h.i, h.j); sfx.up(); }
+  }
+}
+function flipBelt(i,j){
+  const rec = cells.get(keyOf(i,j));
+  if(!rec || rec.type!=='belt' || rec.ramp) return false;
+  rec.dir = (rec.dir+2)%4;
+  rec.pc.group.rotation.y = DIR_RY[rec.dir];
+  refreshConnections(i,j);
+  placePulse(i,j);
+  sfx.up();
+  return true;
+}
+function setTool(t){
+  if(activeTool===t && TIERED.has(t)) machineTier[t] = (machineTier[t]+1)%3; // same key again: next tier
+  activeTool = t;
+  cancelAnchor();
+  refreshToolLabel();
+  rebuildGhost();
+}
+
+/* ================= input ================= */
+let theta = -0.75, phi = 0.95, dist = 15.5;
+const camTarget = new THREE.Vector3(1.2, 0.5, 4.5);
+let dragging=false, px=0, py=0, moved=0;
+let mouseX = innerWidth/2, mouseY = innerHeight/2;
+
+const raycaster = new THREE.Raycaster();
+const groundPlane = new THREE.Plane(new THREE.Vector3(0,1,0), 0);
+
+function rayGround(cx, cy){
+  const ndc = new THREE.Vector2(cx/innerWidth*2-1, -(cy/innerHeight*2-1));
+  raycaster.setFromCamera(ndc, camera);
+  const p = new THREE.Vector3();
+  return raycaster.ray.intersectPlane(groundPlane, p) ? p : null;
+}
+function hoverTile(){
+  const p = rayGround(mouseX, mouseY);
+  if(!p) return null;
+  return tileAt(p.x, p.z);
+}
+function hoverCell(){
+  const t = hoverTile();
+  return t ? cells.get(keyOf(t[0], t[1])) : null;
+}
+
+const el = renderer.domElement;
+el.addEventListener('pointerdown', e=>{
+  sfxInit();
+  if(e.button === 1){ e.preventDefault(); return; }
+  dragging=true; moved=0; px=e.clientX; py=e.clientY;
+});
+el.addEventListener('auxclick', e=>{ if(e.button === 1) e.preventDefault(); });
+addEventListener('pointermove', e=>{
+  mouseX=e.clientX; mouseY=e.clientY;
+  if(!dragging) return;
+  const dx=e.clientX-px, dy=e.clientY-py;
+  moved += Math.abs(dx)+Math.abs(dy);
+  px=e.clientX; py=e.clientY;
+  theta -= dx*0.005;
+  phi = clamp(phi - dy*0.004, 0.22, 1.35);
+});
+function primaryClick(cx, cy){
+  const ndc = new THREE.Vector2(cx/innerWidth*2-1, -(cy/innerHeight*2-1));
+  raycaster.setFromCamera(ndc, camera);
+  const hits = raycaster.intersectObjects(containers.map(c=>c.g), true);
+  if(hits.length){
+    let o = hits[0].object;
+    while(o && o.userData.containerIndex===undefined) o = o.parent;
+    if(o){ queueFeed(o.userData.containerIndex); return; }
+  }
+  // sorter port filter cycling
+  const sorterGroups = [];
+  for(const c of cells.values()) if(c.type==='sorter' && c.part===0) sorterGroups.push(c.core.group);
+  if(sorterGroups.length){
+    const sh = raycaster.intersectObjects(sorterGroups, true);
+    if(sh.length){
+      let o = sh[0].object;
+      while(o && o.userData.sorterSlot===undefined) o = o.parent;
+      if(o && o.userData.sorterCore){
+        const core = o.userData.sorterCore, slot = o.userData.sorterSlot;
+        let k = core.slots[slot];
+        k = k >= ITEM_KINDS.length-1 ? -1 : k+1;
+        sorterSetSlot(core, slot, k);
+        toast('SLOT → ' + (k<0 ? 'CLOSED' : ITEM_KINDS[k].name));
+        return;
+      }
+    }
+  }
+  if(!buildMode) return;
+  const p = rayGround(cx, cy);
+  if(!p) return;
+  const [i,j] = tileAt(p.x, p.z);
+  primaryAt(i,j);
+}
+function primaryAt(i,j){
+  if(!inBounds(i,j)) return;
+  if(activeTool==='belt'){
+    if(!anchor){
+      const cell = cells.get(keyOf(i,j));
+      if(!cell){ anchor = [i,j]; anchorAxis = null; }
+      else if(cell.type==='belt'){ // continue from an existing belt: extend along its axis first
+        anchor = [i,j];
+        ghostDir = cell.dir;
+        anchorAxis = DIRS[cell.dir][0]!==0 ? 'i' : 'j';
+      }
+    } else {
+      const recs = beltPath(anchor, [i,j], bendFlip);
+      commitPath(recs);
+      const last = recs[recs.length-1];
+      const dd = DIRS[last.dir];
+      const ahead = cells.get(keyOf(last.i+dd[0], last.j+dd[1]));
+      if(ahead && ahead.type!=='prop'){
+        cancelAnchor();                        // run connected into the network: done
+      } else {
+        anchor = [last.i, last.j];             // open end: chain onward
+        ghostDir = last.dir;
+        anchorAxis = DIRS[last.dir][0]!==0 ? 'i' : 'j';
+        endCycle = 0;
+        clearPathPreview();
+      }
+    }
+  } else if(!cells.has(keyOf(i,j))){
+    let ok = false;
+    if(activeTool==='arm') ok = placeArm(i,j,ghostDir,machineTier.arm);
+    else if(activeTool==='smelter') ok = placeSmelter(i,j,ghostDir,machineTier.smelter);
+    else if(activeTool==='sorter') ok = placeSorter(i,j,ghostDir);
+    else if(activeTool==='assembler') ok = placeAssembler(i,j,ghostDir);
+    else if(activeTool==='splitter' || activeTool==='merger') ok = placeHub(i,j,ghostDir,activeTool);
+    else ok = placeStorage(i,j,ghostDir);
+    if(ok){ pushUndo({kind:'place', i, j}); placePulse(i,j); const cc=tileCenter(i,j); puffAt(cc.x, cc.z, 0.3); sfx.machine(); }
+    else sfx.err();
+  }
+}
+addEventListener('pointerup', e=>{
+  dragging=false;
+  if(moved >= 6) return;
+  if(e.button !== 0) return;
+  primaryClick(e.clientX, e.clientY);
+});
+el.addEventListener('contextmenu', e=>{
+  e.preventDefault();
+  if(!buildMode) return;
+  if(anchor){ cancelAnchor(); return; }
+  const t = hoverTile();
+  if(!t) return;
+  const [i,j] = t;
+  const er = cells2.get(keyOf(i,j));
+  if(er){ // topmost first
+    pushUndo({kind:'remove', data:{elev:true, i, j, dir:er.dir}});
+    if(removeElev(i,j)){ placePulse(i,j); sfx.rem(); }
+    return;
+  }
+  const gr = cells.get(keyOf(i,j));
+  if(gr && gr.type!=='prop'){
+    if(gr.type==='sorter') pushUndo({kind:'remove', data:{type:'sorter', i:gr.core.origin[0], j:gr.core.origin[1], dir:gr.core.dir}});
+    else if(gr.type==='assembler') pushUndo({kind:'remove', data:{type:'assembler', i:gr.core.origin[0], j:gr.core.origin[1], dir:gr.core.dir}});
+    else if(gr.type==='storage') pushUndo({kind:'remove', data:{type:'storage', i:gr.core.origin[0], j:gr.core.origin[1], dir:gr.core.dir}});
+    else pushUndo({kind:'remove', data:{i, j, type:gr.type, dir:gr.dir, style:gr.style, ramp:gr.ramp, tier:gr.tier}});
+    if(removeAt(i,j)){ placePulse(i,j); sfx.rem(); }
+  }
+});
+el.addEventListener('wheel', e=>{
+  e.preventDefault();
+  dist = clamp(dist * (e.deltaY>0?1.09:0.92), 5, 30);
+}, {passive:false});
+
+function queueFeed(i){
+  if(jobQueue.length < 3){
+    jobQueue.push(i);
+    pulseAt(containers[i].g.position.x, containers[i].g.position.z, 1.05);
+  }
+}
+let pulses = [];
+function pulseAt(x,z,r){
+  const ring = new THREE.Mesh(new THREE.TorusGeometry(r,0.03,6,32), M.emberGlow.clone());
+  ring.material.transparent = true;
+  ring.rotation.x = Math.PI/2;
+  ring.position.set(x, 0.18, z);
+  scene.add(ring);
+  pulses.push({m:ring, t:0});
+}
+function placePulse(i,j){ const c=tileCenter(i,j); pulseAt(c.x, c.z, 1.2); }
+
+let autoFeed = true, autoT = 1.4, autoI = 0;
+
+const moveKeys = new Set();
+addEventListener('keydown', e=>{
+  const k = e.key.toLowerCase();
+  if((e.ctrlKey || e.metaKey) && k==='z'){ e.preventDefault(); doUndo(); return; }
+  if(!e.ctrlKey && !e.metaKey && 'wasd'.includes(k) && k.length===1) moveKeys.add(k);
+  if(k==='escape'){ cancelAnchor(); }
+  else if(k==='r'){
+    if(anchor && ghostTile){
+      if(ghostTile[0]===anchor[0] && ghostTile[1]===anchor[1]) ghostDir = (ghostDir+1)%4;
+      else if(ghostTile[0]===anchor[0] || ghostTile[1]===anchor[1]) endCycle++;
+      else bendFlip = !bendFlip;
+    } else if(buildMode && ghostTile && !cells.has(keyOf(ghostTile[0],ghostTile[1]))){
+      ghostDir = (ghostDir+1)%4;
+      snapLock = true;
+    } else {
+      const h = hoverCell();
+      if(h && h.type!=='prop') rotateAt(h.i, h.j);
+      else if(buildMode) ghostDir = (ghostDir+1)%4;
+    }
+  }
+  else if(k>='1' && k<='3') setActiveStyle(+k-1, e.shiftKey);
+  else if(k==='6') setTool('arm');
+  else if(k==='7') setTool('smelter');
+  else if(k==='8') setTool('storage');
+  else if(k==='9') setTool('sorter');
+  else if(k==='0') setTool('assembler');
+  else if(k==='q') setTool('splitter');
+  else if(k==='e') setTool('merger');
+  else if(k==='b') setBuildMode(!buildMode);
+  else if(k==='f'){ const h = hoverCell(); if(h && h.type==='belt') flipBelt(h.i, h.j); }
+  else if(k==='g'){ autoFeed = !autoFeed; document.getElementById('auto').classList.toggle('on', autoFeed); }
+});
+addEventListener('keyup', e=>{ moveKeys.delete(e.key.toLowerCase()); });
+addEventListener('blur', ()=>{ moveKeys.clear(); });
+
+addEventListener('resize', ()=>{
+  camera.aspect = innerWidth/innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(innerWidth, innerHeight);
+});
+
+function updatePathHud(end){
+  const ph = document.getElementById('pathHud');
+  if(!ph || !lastRecs) return;
+  const recs = lastRecs;
+  let fresh = 0, bridges = 0;
+  for(const r of recs){
+    if(!cells.has(keyOf(r.i,r.j)) || r.elev) fresh++;
+    if(r.ramp==='up') bridges++;
+  }
+  const reachedEnd = recs.length && (Math.abs(recs[recs.length-1].i-end[0]) + Math.abs(recs[recs.length-1].j-end[1])) <= 1;
+  const goalCell = cells.get(keyOf(end[0], end[1]));
+  const rate = (TIER_SPEED[activeStyle]*60/0.6)|0;
+  let msg, bad = false;
+  if(recs.length<=1 && (end[0]!==anchor[0] || end[1]!==anchor[1])){
+    bad = true;
+    msg = (goalCell && goalCell.type!=='belt' && goalCell.type!=='prop') ? 'INPUT MISMATCH — WRONG SIDE' : 'NO ROUTE';
+  } else {
+    const last = recs[recs.length-1];
+    const dd = DIRS[last.dir];
+    const ai = last.i+dd[0], aj = last.j+dd[1];
+    const ahead = cells.get(keyOf(ai,aj));
+    let connect = '';
+    if(ahead && ahead.type!=='prop'){
+      if(ahead.type==='belt'){
+        connect = ' · → MERGE';
+      } else if(connectsFrom(last.i, last.j, last.dir)){
+        const pl = portsForTile(last.i, last.j).find(pp=>pp.cell===ahead || (pp.cell.core && ahead.core===pp.cell.core));
+        connect = ' · → ' + (pl ? pl.p.label : ahead.type.toUpperCase());
+        if(machineFull(ahead, last.dir)) connect += ' · CURRENTLY FULL';
+      } else {
+        bad = true;
+        msg = 'INPUT MISMATCH — WRONG SIDE';
+      }
+    }
+    if(!bad){
+      msg = fresh + ' BELT' + (fresh===1?'':'S') + ' · ' + BELT_STYLES[activeStyle].name.split(' — ')[0]
+          + ' · ' + rate + '/MIN'
+          + (bridges ? ' · ' + bridges + ' BRIDGE' + (bridges>1?'S':'') : '')
+          + (!reachedEnd ? ' · STOPS SHORT' : '')
+          + connect;
+    }
+  }
+  ph.textContent = msg;
+  ph.classList.add('on');
+  ph.classList.toggle('bad', bad);
+}
+function updatePortHover(t){
+  // hover glow + guidance, in build mode with the belt tool
+  if(!buildMode || activeTool!=='belt' || !t){ hidePortGlow(); if(!anchor){ const ph=document.getElementById('pathHud'); if(ph) ph.classList.remove('on','bad'); } return; }
+  const plist = portsForTile(t[0], t[1]);
+  const ph = document.getElementById('pathHud');
+  if(!plist.length){
+    hidePortGlow();
+    if(!anchor && ph) ph.classList.remove('on','bad');
+    return;
+  }
+  const c = tileCenter(t[0], t[1]);
+  // pick: prefer inputs; if anchored, judge against the path's approach direction
+  let approach = null;
+  if(anchor && lastRecs && lastRecs.length){
+    const last = lastRecs[lastRecs.length-1];
+    if(last.i===t[0] && last.j===t[1]) approach = last.dir;
+    else { const dd = [t[0]-last.i, t[1]-last.j]; approach = dirIndexOf(dd[0], dd[1]); }
+  }
+  const inputs = plist.filter(pp=>pp.p.inb);
+  const pick = inputs[0] || plist[0];
+  let state, msg, bad=false;
+  if(pick.p.inb){
+    const entryOKh = pick.p.entry===null || approach===null || approach===pick.p.entry;
+    if(entryOKh){
+      state = 'in';
+      msg = pick.p.label + ' — CONNECT HERE';
+      if(machineFull(pick.cell, pick.p.entry===null?0:pick.p.entry)) msg += ' · CURRENTLY FULL';
+    } else {
+      state = 'bad'; bad = true;
+      msg = pick.p.label + ' — WRONG SIDE, ENTER ALONG THE ARROW';
+    }
+  } else {
+    state = anchor ? 'bad' : 'out';
+    bad = !!anchor;
+    msg = pick.p.label + (anchor ? ' — OUTPUT ONLY' : ' — ITEMS EXIT HERE');
+  }
+  const yaw = pick.p.entry!==null ? DIR_RY[pick.p.entry] : 0;
+  setPortGlow(c.x, c.z, yaw, state);
+  if(ph && (!anchor || bad)){
+    ph.textContent = msg;
+    ph.classList.add('on');
+    ph.classList.toggle('bad', bad || state==='bad');
+  }
+}
+
+/* ================= UI ================= */
+let toastTimer = null;
+function toast(msg){
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.classList.add('on');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(()=>t.classList.remove('on'), 2200);
+}
+function updateCounter(){
+  let belts=cells2.size, mach=0;
+  for(const c of cells.values()){
+    if(c.type==='belt') belts++;
+    else if(c.type==='arm'||c.type==='smelter'||c.type==='storage'||c.type==='splitter'||c.type==='merger') mach++;
+    else if(c.type==='sorter' && c.part===0) mach++;
+    else if(c.type==='assembler' && c.part===0) mach++;
+  }
+  document.getElementById('count').textContent = belts+' BELTS · '+mach+' MACHINES · '+riders.length+' ITEMS';
+}
+
+/* ================= starter layout =================
+   ore hopper -> big arm -> belt -> SMELTER -> belt -> CURVE -> belts
+   -> TRANSFER ARM -> belts -> off the end */
+placeBelt( 2,1,2,0); placeBelt( 1,1,2,0);
+placeSmelter(0,1,2);
+placeBelt(-1,1,2,0);
+placeBelt(-2,1,1,0);            // fed from the side -> auto-curves
+placeBelt(-2,2,1,0); placeBelt(-2,3,1,0);
+placeArm(-2,4,1);
+placeBelt(-2,5,1,0); placeBelt(-2,6,1,0);
+placeStorage(-2,7,1);
+refreshToolLabel();
+rebuildGhost();
+setBuildMode(true);
+document.getElementById('auto').classList.toggle('on', autoFeed);
+updateCounter();
+
+/* ================= loop ================= */
+const clock = new THREE.Clock();
+function tick(){
+  requestAnimationFrame(tick);
+  const dt = Math.min(clock.getDelta(), 0.05);
+
+  updatePieces(dt);
+  updateRiders(dt);
+  updateBigArm(dt);
+  updateSmallArms(dt);
+  updateSmelters(dt);
+  updateSorters(dt);
+  updateAssemblers(dt);
+  updateStorages(dt);
+  updateHubs(dt);
+  updateFeedback(dt);
+  updateMachineLabels();
+
+  if(autoFeed && !bigArm.seq && jobQueue.length===0){
+    autoT -= dt;
+    if(autoT <= 0){
+      const drop = findDropTile();
+      if(drop && ridersOn(drop.i, drop.j) < 2){ queueFeed(autoI%5); autoI++; }
+      autoT = 1.3;
+    }
+  }
+
+  if(buildMode && ghost){
+    const t = hoverTile();
+    ghostTile = t;
+    applyGhostSnap(t);
+    updatePortHover(t);
+    if(anchor && activeTool==='belt'){
+      ghost.visible = false;
+      const end = (t && inBounds(t[0],t[1])) ? t : anchor;
+      const key = anchor.join(',')+'|'+end.join(',')+'|'+(bendFlip?1:0)+'|'+endCycle+'|'+activeStyle;
+      if(key !== pathKey){
+        pathKey = key;
+        buildPathPreview(beltPath(anchor, end, bendFlip));
+        updatePathHud(end);
+      }
+    } else {
+      if(activeTool==='belt'){
+        const ws = t ? wouldBeShape(t[0], t[1], ghostDir) : 'straight';
+        if(ws !== ghostShape){ ghostShape = ws; rebuildGhost(); }
+      }
+      if(t && inBounds(t[0],t[1])){
+        const occupied = cells.has(keyOf(t[0],t[1]));
+        ghostValid = !occupied;
+        ghost.visible = true;
+        ghost.position.copy(tileCenter(t[0],t[1]));
+        ghost.rotation.y = DIR_RY[ghostDir];
+        setGhostTint(ghostValid);
+      } else {
+        ghost.visible = false;
+        ghostValid = false;
+      }
+    }
+  }
+
+  if(portGlow.g.visible){
+    const p = 1 + Math.sin(phase*7)*0.09;
+    portGlow.g.scale.setScalar(p);
+  }
+  for(let i=pulses.length-1;i>=0;i--){
+    const p = pulses[i];
+    p.t += dt*1.4;
+    p.m.scale.setScalar(1 + p.t*0.5);
+    p.m.material.opacity = 1 - p.t;
+    if(p.t>=1){ scene.remove(p.m); pulses.splice(i,1); }
+  }
+
+  if(moveKeys.size){
+    const fx = -Math.sin(theta), fz = -Math.cos(theta); // camera-forward on the ground
+    const rx = -fz, rz = fx;                            // screen-right
+    let mx = 0, mz = 0;
+    if(moveKeys.has('w')){ mx += fx; mz += fz; }
+    if(moveKeys.has('s')){ mx -= fx; mz -= fz; }
+    if(moveKeys.has('d')){ mx += rx; mz += rz; }
+    if(moveKeys.has('a')){ mx -= rx; mz -= rz; }
+    const len = Math.sqrt(mx*mx+mz*mz);
+    if(len > 0){
+      const sp = dist * 0.85 * dt / len;
+      camTarget.x = clamp(camTarget.x + mx*sp, -26, 26);
+      camTarget.z = clamp(camTarget.z + mz*sp, -26, 26);
+    }
+  }
+
+  camera.position.set(
+    camTarget.x + dist*Math.sin(phi)*Math.sin(theta),
+    camTarget.y + dist*Math.cos(phi),
+    camTarget.z + dist*Math.sin(phi)*Math.cos(theta)
+  );
+  camera.lookAt(camTarget);
+
+  renderer.render(scene, camera);
+}
+tick();
+
+/* test hooks */
+window.__cw = {
+  riders, cells,
+  place:placeBelt, placeArm, placeSmelter, placeStorage, placeSorter, placeAssembler, placeHub, remove:removeAt, rotate:rotateAt,
+  flipBelt,
+  snapAt:(i,j)=>{ applyGhostSnap([i,j]); return ghostDir; },
+  portHover:(i,j)=>{ updatePortHover(i===null?null:[i,j]); const ph=document.getElementById('pathHud'); return {glow:portGlow.g.visible, hud:ph.textContent, on:ph.classList.contains('on'), bad:ph.classList.contains('bad')}; },
+  portsAt:(i,j)=>portsForTile(i,j).map(pp=>({label:pp.p.label, inb:pp.p.inb, entry:pp.p.entry})),
+  upgradeChain:(i,j,style)=>{ const h=cells.get(keyOf(i,j)); if(!h||h.type!=='belt'||h.ramp) return 0; let n=0; for(const r of beltChain(h)) if(restyleBelt(r.i,r.j,style)) n++; return n; },
+  asmInfo:(i,j)=>{ const c=cells.get(keyOf(i,j)); return (c&&c.type==='assembler') ? {inA:c.core.inA, inB:c.core.inB, buffer:c.core.buffer, t:+c.core.t.toFixed(2)} : null; },
+  sorterSlot:(i,j,slot,kindIdx)=>{ const c=cells.get(keyOf(i,j)); if(c&&c.type==='sorter'){ sorterSetSlot(c.core, slot, kindIdx); return true; } return false; },
+  sorterInfo:(i,j)=>{ const c=cells.get(keyOf(i,j)); return (c&&c.type==='sorter') ? {slots:[...c.core.slots], queue:c.core.queue.length, dir:c.core.dir, origin:c.core.origin} : null; },
+  setStyle:(i,all)=>setActiveStyle(i,all),
+  setTool, setBuild:setBuildMode,
+  feed:queueFeed,
+  setAuto:(v)=>{ autoFeed=v; },
+  cam:(t,p,d)=>{ theta=t; phi=p; dist=d; },
+  camT:(x,y,z)=>{ camTarget.set(x,y,z); },
+  ghostAt:(x,y)=>{ mouseX=x; mouseY=y; },
+  click:(x,y)=>primaryClick(x,y),
+  clickTile:(i,j)=>primaryAt(i,j),
+  cancelAnchor,
+  flipBend:()=>{ bendFlip=!bendFlip; },
+  pathInfo:()=>({anchor, bendFlip, hasPreview:!!pathGroup, previewCount:pathGroup?pathGroup.children.length:0}),
+  ghostInfo:()=>({tile:ghostTile, shape:ghostShape, dir:ghostDir, valid:ghostValid}),
+  setGhostDir:(d)=>{ ghostDir=((d%4)+4)%4; },
+  proj:(x,z)=>{ const v=new THREE.Vector3(x,1,z).project(camera); return [(v.x+1)/2*innerWidth, (1-v.y)/2*innerHeight]; },
+  cellAt:(i,j)=>{ const c=cells.get(keyOf(i,j)); return c?{type:c.type,dir:c.dir,shape:c.shape,queue:c.queue,buffer:c.buffer,count:c.count,ramp:c.ramp,tier:c.tier,cap:c.cap}:null; },
+  elevAt:(i,j)=>{ const c=cells2.get(keyOf(i,j)); return c?{dir:c.dir}:null; },
+  undo:doUndo,
+  state:()=>{
+    let belts=0,arms=0,smelters=0;
+    for(const c of cells.values()){ if(c.type==='belt')belts++; else if(c.type==='arm')arms++; else if(c.type==='smelter')smelters++; }
+    return {belts, arms, smelters, riders:riders.length, busy:!!bigArm.seq, queue:jobQueue.length, buildMode, activeTool, activeStyle,
+      riderPos:riders.map(r=>[+r.mesh.position.x.toFixed(2), +r.mesh.position.y.toFixed(2), +r.mesh.position.z.toFixed(2), r.falling?1:0, r.claimed?1:0])};
+  }
+};
+})();
+</script>
+</body>
+</html>
